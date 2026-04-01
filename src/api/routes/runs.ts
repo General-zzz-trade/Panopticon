@@ -6,6 +6,8 @@ import { sanitizeGoal } from "../sanitize";
 import { detectAmbiguity } from "../../clarification/detector";
 import { storeClarification, answerClarification, deleteClarification } from "../../clarification/store";
 import { decomposeGoal, summarizeDecomposition } from "../../decomposer";
+import { isDangerousGoal, auditLog, maskSensitive } from "../security";
+import { recordFrequentGoal } from "../../user-memory/store";
 
 export async function runsRoutes(app: FastifyInstance): Promise<void> {
   // POST /runs — submit a goal (non-blocking, returns 202 immediately)
@@ -25,6 +27,17 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
     const goal = sanitizeGoal(rawGoal);
     if (!goal) return reply.code(400).send({ error: "goal is empty after sanitization" });
 
+    // Dangerous goal check — warn but don't block (return flag for UI to confirm)
+    const danger = isDangerousGoal(goal);
+    if (danger.dangerous && !request.body.options?.["confirmDangerous"]) {
+      auditLog({ tenantId: request.tenantId, action: "dangerous_goal_blocked", detail: danger.reason });
+      return reply.code(400).send({
+        error: "dangerous_goal",
+        reason: danger.reason,
+        hint: 'Add { "options": { "confirmDangerous": true } } to proceed'
+      });
+    }
+
     const clarification = detectAmbiguity(goal);
     if (clarification.needed) {
       const runId = `run-${new Date().toISOString().replace(/[:.]/g, "-")}-${Math.random().toString(36).slice(2, 8)}`;
@@ -40,6 +53,8 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
     const runId = `run-${new Date().toISOString().replace(/[:.]/g, "-")}-${Math.random().toString(36).slice(2, 8)}`;
     const decomposition = decomposeGoal(goal);
     submitJob(runId, goal, options, request.tenantId);
+    recordFrequentGoal(request.tenantId, goal);
+    auditLog({ tenantId: request.tenantId, action: "run_submitted", resource: runId, detail: maskSensitive(goal) });
     return reply.code(202).send({
       runId,
       status: "pending",

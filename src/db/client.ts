@@ -3,6 +3,9 @@ import { join } from "node:path";
 import { mkdirSync } from "node:fs";
 import { CREATE_TABLES } from "./schema";
 import { CREATE_KNOWLEDGE_TABLE } from "../knowledge/store";
+import { CREATE_SCHEDULES_TABLE } from "../scheduler/store";
+import { CREATE_USER_MEMORY_TABLE } from "../user-memory/store";
+import { CREATE_AUDIT_TABLE } from "../api/security";
 
 let _db: Database.Database | null = null;
 
@@ -18,6 +21,9 @@ export function getDb(): Database.Database {
   _db.pragma("foreign_keys = ON");
   _db.exec(CREATE_TABLES);
   _db.exec(CREATE_KNOWLEDGE_TABLE);
+  _db.exec(CREATE_SCHEDULES_TABLE);
+  _db.exec(CREATE_USER_MEMORY_TABLE);
+  _db.exec(CREATE_AUDIT_TABLE);
   runMigrations(_db);
 
   return _db;

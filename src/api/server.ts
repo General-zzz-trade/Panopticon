@@ -5,13 +5,22 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runsRoutes } from "./routes/runs";
 import { streamRoutes } from "./routes/stream";
+import { schedulesRoutes } from "./routes/schedules";
+import { memoryRoutes } from "./routes/memory";
 import { authPlugin, initApiKeysTable, createApiKey } from "./plugins/auth";
+import { initSchedulesTable } from "../scheduler/store";
+import { startScheduler } from "../scheduler/engine";
+import { initUserMemoryTable } from "../user-memory/store";
 import { renderPrometheus } from "../observability/metrics-store";
 import { listPlugins } from "../plugins/registry";
 import { getKnowledgeStats } from "../knowledge/store";
+import { initAuditTable, rateLimitHook, auditLog } from "./security";
 
 export async function buildServer() {
   initApiKeysTable();
+  initSchedulesTable();
+  initUserMemoryTable();
+  initAuditTable();
   const app = Fastify({ logger: false });
 
   await app.register(cors, { origin: true });
@@ -20,9 +29,14 @@ export async function buildServer() {
   const publicDir = join(fileURLToPath(import.meta.url), "../../../public");
   await app.register(staticFiles, { root: publicDir, prefix: "/" });
 
+  // Rate limiting on all API routes
+  app.addHook("preHandler", rateLimitHook);
+
   await app.register(authPlugin);
   await app.register(runsRoutes, { prefix: "/api/v1" });
   await app.register(streamRoutes, { prefix: "/api/v1" });
+  await app.register(schedulesRoutes, { prefix: "/api/v1" });
+  await app.register(memoryRoutes, { prefix: "/api/v1" });
 
   app.get("/health", async () => ({
     status: "ok",
@@ -68,6 +82,7 @@ async function main() {
 
   const app = await buildServer();
   await app.listen({ port, host });
+  startScheduler();
   console.log(`Agent API listening on http://${host}:${port}`);
   console.log(`  GET  /                   - Web UI 控制台`);
   console.log(`  POST /api/v1/runs        - submit goal (async)`);
@@ -79,6 +94,7 @@ async function main() {
   console.log(`  GET  /health             - health check`);
   console.log(`  POST /api/v1/keys        - create API key`);
   console.log(`  GET  /api/v1/knowledge/stats     - knowledge base stats`);
+  console.log(`  GET/POST /api/v1/schedules       - cron schedule management`);
   console.log(`  Set AGENT_API_AUTH=false to disable auth (dev mode)`);
 }
 
