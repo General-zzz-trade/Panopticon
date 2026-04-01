@@ -4,6 +4,7 @@ import { handleShellTask } from "./handlers/shell-handler";
 import { Logger } from "./logger";
 import { captureRetryFailureArtifact, getRetryPolicy, waitBeforeRetry } from "./retry";
 import { AgentTask, RunContext } from "./types";
+import { getActionHandler } from "./plugins/registry";
 
 export async function executeTask(
   context: RunContext,
@@ -55,6 +56,16 @@ async function dispatchTask(
   task: AgentTask,
   logger: Logger
 ): Promise<TaskExecutionOutput> {
+  // Check plugin registry first (allows overriding built-in actions)
+  const pluginHandler = getActionHandler(task.type);
+  if (pluginHandler) {
+    const output = await pluginHandler.execute(context, task);
+    for (const artifact of output.artifacts ?? []) {
+      context.artifacts.push({ ...artifact, taskId: task.id });
+    }
+    return { summary: output.summary };
+  }
+
   if (task.type === "assert_text") {
     return handleAssertTask(context, task, logger);
   }

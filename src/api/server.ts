@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import { runsRoutes } from "./routes/runs";
 import { authPlugin, initApiKeysTable, createApiKey } from "./plugins/auth";
 import { renderPrometheus } from "../observability/metrics-store";
+import { listPlugins } from "../plugins/registry";
 
 export async function buildServer() {
   initApiKeysTable();
@@ -16,6 +17,11 @@ export async function buildServer() {
     status: "ok",
     timestamp: new Date().toISOString()
   }));
+
+  // List registered plugins
+  app.get("/api/v1/plugins", async (_req, reply) => {
+    return reply.send({ plugins: listPlugins() });
+  });
 
   // Prometheus metrics endpoint — bypass auth (scrapers don't use API keys)
   app.get("/metrics", async (_req, reply) => {
