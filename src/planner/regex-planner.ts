@@ -64,6 +64,36 @@ function parseBlueprint(part: string): TaskBlueprint | null {
     return { type: "open_page", payload: { url: pageUrl } };
   }
 
+  // Visual perception actions — checked BEFORE regular click/type to avoid prefix collision
+  const visualClickDesc =
+    extractQuotedValue(part, /visual(?:ly)?\s+click\s+"([^"]+)"/i) ??
+    extractUnquotedAfterKeyword(part, /visual(?:ly)?\s+click\s+/i);
+  if (visualClickDesc && /\bvisual(?:ly)?\s+click\b/i.test(part)) {
+    return { type: "visual_click", payload: { description: visualClickDesc } };
+  }
+
+  const visualTypeText = extractQuotedValue(part, /visual(?:ly)?\s+type\s+"([^"]+)"/i);
+  const visualTypeDesc =
+    extractQuotedValue(part, /(?:into|in)\s+"([^"]+)"/i) ??
+    extractUnquotedAfterKeyword(part, /(?:into|in)\s+/i);
+  if (visualTypeText && visualTypeDesc && /\bvisual(?:ly)?\s+type\b/i.test(part)) {
+    return { type: "visual_type", payload: { description: visualTypeDesc, text: visualTypeText } };
+  }
+
+  const visualAssertDesc =
+    extractQuotedValue(part, /visual(?:ly)?\s+assert\s+"([^"]+)"/i) ??
+    extractUnquotedAfterKeyword(part, /visual(?:ly)?\s+assert\s+/i);
+  if (visualAssertDesc && /\bvisual(?:ly)?\s+assert\b/i.test(part)) {
+    return { type: "visual_assert", payload: { assertion: visualAssertDesc } };
+  }
+
+  const visualExtractDesc =
+    extractQuotedValue(part, /visual(?:ly)?\s+extract\s+"([^"]+)"/i) ??
+    extractUnquotedAfterKeyword(part, /visual(?:ly)?\s+extract\s+/i);
+  if (visualExtractDesc && /\bvisual(?:ly)?\s+extract\b/i.test(part)) {
+    return { type: "visual_extract", payload: { description: visualExtractDesc } };
+  }
+
   const clickSelector = extractQuotedValue(part, /click\s+"([^"]+)"/i) ?? extractUnquotedSelector(part);
   if (clickSelector && /\bclick\b/i.test(part)) {
     return { type: "click", payload: { selector: clickSelector } };
@@ -214,4 +244,10 @@ function extractTimeout(value: string): number | undefined {
 function extractScreenshotPath(value: string): string | undefined {
   const match = value.match(/screenshot\s+(?:to|as)\s+([^\s]+)/i);
   return match?.[1];
+}
+
+// Extracts unquoted text after a keyword prefix, stopping at " and " or end of string
+function extractUnquotedAfterKeyword(value: string, prefix: RegExp): string | undefined {
+  const match = value.match(new RegExp(prefix.source + "([^\"]+?)(?:\\s+and\\s+|$)", "i"));
+  return match?.[1]?.trim() || undefined;
 }

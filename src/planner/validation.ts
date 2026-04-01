@@ -13,7 +13,11 @@ const ALLOWED_PAYLOAD_FIELDS: Record<AgentAction, string[]> = {
   wait: ["durationMs"],
   assert_text: ["text", "timeoutMs"],
   screenshot: ["outputPath"],
-  stop_app: []
+  stop_app: [],
+  visual_click: ["description"],
+  visual_type: ["description", "text"],
+  visual_assert: ["assertion"],
+  visual_extract: ["description"]
 };
 
 const REQUIRED_PAYLOAD_FIELDS: Partial<Record<AgentAction, string[]>> = {
@@ -25,7 +29,11 @@ const REQUIRED_PAYLOAD_FIELDS: Partial<Record<AgentAction, string[]>> = {
   select: ["selector", "value"],
   hover: ["selector"],
   wait: ["durationMs"],
-  assert_text: ["text"]
+  assert_text: ["text"],
+  visual_click: ["description"],
+  visual_type: ["description", "text"],
+  visual_assert: ["assertion"],
+  visual_extract: ["description"]
 };
 
 export function validateAndMaterializeTasks(

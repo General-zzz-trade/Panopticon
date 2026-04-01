@@ -15,7 +15,12 @@ export type AgentAction =
   | "wait"
   | "assert_text"
   | "screenshot"
-  | "stop_app";
+  | "stop_app"
+  // Visual perception actions — use natural language description instead of CSS selector
+  | "visual_click"
+  | "visual_type"
+  | "visual_assert"
+  | "visual_extract";
 
 export type GoalCategory = "explicit" | "semi-natural" | "ambiguous";
 export type EscalationStage = "planner" | "replanner" | "diagnoser";

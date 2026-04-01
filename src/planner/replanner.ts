@@ -114,6 +114,24 @@ export async function replanTasks(input: ReplanInput): Promise<ReplanDecision> {
 
 function buildRuleDecision(input: ReplanInput): ReplanDecision | undefined {
   if (input.task.type === "click") {
+    const failureType = classifyFailureType(input.error, { repeatedFailure: false });
+    // If selector_mismatch, escalate to visual_click as fallback
+    if (failureType === "selector_mismatch" && input.task.payload["selector"]) {
+      const selectorStr = String(input.task.payload["selector"]);
+      const description = selectorStr.startsWith("#")
+        ? `element with id "${selectorStr.slice(1)}"`
+        : selectorStr.startsWith(".")
+          ? `element with class "${selectorStr.slice(1)}"`
+          : `element matching "${selectorStr}"`;
+      return {
+        insertTasks: [
+          createReplanTask(input.context, input.task, "visual_click", { description })
+        ],
+        replaceWith: [],
+        abort: false,
+        reason: `Rule replanner: click selector failed, falling back to visual_click for "${description}".`
+      };
+    }
     return {
       insertTasks: [
         createReplanTask(input.context, input.task, "wait", { durationMs: 1000 }),

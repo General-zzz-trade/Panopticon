@@ -1,6 +1,7 @@
 import { handleAssertTask } from "./handlers/assert-handler";
 import { handleBrowserTask, TaskExecutionOutput } from "./handlers/browser-handler";
 import { handleShellTask } from "./handlers/shell-handler";
+import { handleVisionTask } from "./handlers/vision-handler";
 import { Logger } from "./logger";
 import { captureRetryFailureArtifact, getRetryPolicy, waitBeforeRetry } from "./retry";
 import { AgentTask, RunContext } from "./types";
@@ -68,6 +69,11 @@ async function dispatchTask(
 
   if (task.type === "assert_text") {
     return handleAssertTask(context, task, logger);
+  }
+
+  if (task.type === "visual_click" || task.type === "visual_type" ||
+      task.type === "visual_assert" || task.type === "visual_extract") {
+    return handleVisionTask(context, task, logger);
   }
 
   if (task.type === "start_app" || task.type === "wait_for_server" || task.type === "stop_app") {
