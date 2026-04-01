@@ -23,10 +23,11 @@ interface RecoveryStats {
   recoveries: number;
   totalInsertedTasks: number;
   totalRetries: number;
-  llmReplannerInvocations: number;
-  fallbackCount: number;
-  ledgerSummary: number;
+  llmUsageByScenario: Record<string, number>;
+  fallbackCountByScenario: Record<string, number>;
 }
+
+type RecoveryScenario = "selector mismatch" | "delayed success" | "near-match assert" | "multi-step recovery" | "no safe recovery";
 
 type Category = "explicit" | "semi-natural" | "ambiguous";
 
@@ -104,9 +105,9 @@ async function runPlanningBenchmark(): Promise<void> {
       entry.llmInvocations += run.plannerDecisionTrace?.llmInvocations ?? 0;
       entry.timeoutCount += run.plannerDecisionTrace?.timeoutCount ?? 0;
       entry.fallbackCount += run.plannerDecisionTrace?.fallbackReason ? 1 : 0;
-      entry.ledgerPlannerCalls += run.usageLedger?.plannerCalls ?? 0;
-      entry.ledgerReplannerCalls += run.usageLedger?.replannerCalls ?? 0;
-      entry.ledgerDiagnoserCalls += run.usageLedger?.diagnoserCalls ?? 0;
+      entry.ledgerPlannerCalls += run.usageLedger?.llmPlannerCalls ?? 0;
+      entry.ledgerReplannerCalls += run.usageLedger?.llmReplannerCalls ?? 0;
+      entry.ledgerDiagnoserCalls += run.usageLedger?.llmDiagnoserCalls ?? 0;
 
       const chosenPlanner = run.plannerDecisionTrace?.chosenPlanner ?? "none";
       entry.chosenCounts[chosenPlanner] = (entry.chosenCounts[chosenPlanner] ?? 0) + 1;
@@ -139,70 +140,43 @@ async function runPlanningBenchmark(): Promise<void> {
 }
 
 async function runRecoveryBenchmark(): Promise<void> {
-  const modes = ["rules-only", "llm-replanner-enabled"] as const;
-  const stats = new Map<(typeof modes)[number], RecoveryStats>();
+  const scenarios: Array<{ name: RecoveryScenario; goal: string }> = [];
   const port = await getAvailablePort();
   const url = `http://127.0.0.1:${port}`;
   const command = `tsx src/sample-app/server.ts ${port}`;
-  const recoveryGoal =
-    `start app "${command}" and wait for server "${url}" and open page "${url}" and click "#login-button" and assert text "Wrong Dashboard" timeout 1 second and stop app`;
 
-  for (const mode of modes) {
-    stats.set(mode, {
-      runs: 0,
-      recoveries: 0,
-      totalInsertedTasks: 0,
-      totalRetries: 0,
-      llmReplannerInvocations: 0,
-      fallbackCount: 0
-      ,
-      ledgerSummary: 0
-    });
+  scenarios.push({ name: "selector mismatch", goal: `start app "${command}" and wait for server "${url}" and open page "${url}" and click "#wrong-button" and assert text "Dashboard" and stop app` });
+  scenarios.push({ name: "delayed success", goal: `start app "${command}" and wait for server "${url}" and open page "${url}" and click "#delayed-login-button" and assert text "Dashboard" and stop app` });
+  scenarios.push({ name: "near-match assert", goal: `start app "${command}" and wait for server "${url}" and open page "${url}" and click "#login-button" and assert text "Dashbord" and stop app` });
+  scenarios.push({ name: "multi-step recovery", goal: `start app "${command}" and wait for server "${url}" and open page "${url}" and click "#wrong-button" and assert text "Wrong Dashboard" timeout 1 second and stop app` });
+  scenarios.push({ name: "no safe recovery", goal: `start app "${command}" and wait for server "${url}" and open page "${url}" and assert text "Never Appears" timeout 1 second and stop app` });
 
-    if (mode === "llm-replanner-enabled" && !process.env.LLM_REPLANNER_PROVIDER) {
-      continue;
-    }
+  const stats: RecoveryStats = { runs: 0, recoveries: 0, totalInsertedTasks: 0, totalRetries: 0, llmUsageByScenario: {}, fallbackCountByScenario: {} };
 
-    const run = await runGoal(recoveryGoal, {
+  for (const scenario of scenarios) {
+    const run = await runGoal(scenario.goal, {
       plannerMode: "auto",
       maxReplansPerRun: 2,
       maxReplansPerTask: 1,
       maxLLMPlannerCalls: 0,
-      maxLLMReplannerCalls: mode === "llm-replanner-enabled" ? 1 : 0,
+      maxLLMReplannerCalls: process.env.LLM_REPLANNER_PROVIDER ? 1 : 0,
       maxLLMReplannerTimeouts: 1
     });
 
-    const entry = stats.get(mode);
-    if (!entry) {
-      continue;
-    }
-
-    entry.runs += 1;
-    entry.recoveries += run.result?.success ? 1 : 0;
-    entry.totalInsertedTasks += run.insertedTaskCount;
-    entry.totalRetries += run.metrics?.totalRetries ?? 0;
-    entry.llmReplannerInvocations += run.llmReplannerInvocations;
-    entry.fallbackCount += run.llmReplannerFallbackCount;
-    entry.ledgerSummary += run.usageLedger?.totalLLMInteractions ?? 0;
+    stats.runs += 1;
+    stats.recoveries += run.result?.success ? 1 : 0;
+    stats.totalInsertedTasks += run.insertedTaskCount;
+    stats.totalRetries += run.metrics?.totalRetries ?? 0;
+    stats.llmUsageByScenario[scenario.name] = run.usageLedger?.llmReplannerCalls ?? 0;
+    stats.fallbackCountByScenario[scenario.name] = run.usageLedger?.replannerFallbacks ?? 0;
   }
 
-  console.log("");
-  console.log("recovery benchmark:");
-  for (const mode of modes) {
-    const entry = stats.get(mode);
-    if (!entry || entry.runs === 0) {
-      console.log(`  ${mode}: skipped`);
-      continue;
-    }
-
-    console.log(`  ${mode}:`);
-    console.log(`    recovery success rate: ${(entry.recoveries / entry.runs).toFixed(2)}`);
-    console.log(`    average inserted tasks: ${(entry.totalInsertedTasks / entry.runs).toFixed(2)}`);
-    console.log(`    average retries: ${(entry.totalRetries / entry.runs).toFixed(2)}`);
-    console.log(`    llm replanner invocation count: ${entry.llmReplannerInvocations}`);
-    console.log(`    fallback count: ${entry.fallbackCount}`);
-    console.log(`    usage ledger summary: totalLLMInteractions=${entry.ledgerSummary}`);
-  }
+  console.log("\nrecovery benchmark:");
+  console.log(`  recovery success rate: ${(stats.recoveries / Math.max(stats.runs, 1)).toFixed(2)}`);
+  console.log(`  llm usage by scenario: ${JSON.stringify(stats.llmUsageByScenario)}`);
+  console.log(`  fallback count by scenario: ${JSON.stringify(stats.fallbackCountByScenario)}`);
+  console.log(`  average inserted tasks: ${(stats.totalInsertedTasks / Math.max(stats.runs, 1)).toFixed(2)}`);
+  console.log(`  average retries: ${(stats.totalRetries / Math.max(stats.runs, 1)).toFixed(2)}`);
 }
 
 function createEmptyPlannerStats(): PlannerStats {

@@ -1,4 +1,5 @@
 import { closeBrowserSession } from "../browser";
+import { decideEscalation } from "../escalation-policy";
 import { executeTask } from "../executor";
 import { findFailurePatterns, loadRecentRuns, saveRun } from "../memory";
 import { calculateRunMetrics } from "../metrics";
@@ -7,7 +8,7 @@ import { PlannerMode, planTasks } from "../planner";
 import { replanTasks } from "../planner/replanner";
 import { reflectOnRun, saveReflectionToFile } from "../reflector";
 import { stopApp } from "../shell";
-import { createUsageLedger, finalizeUsageLedger, recordDiagnoserCall } from "../usage-ledger";
+import { createUsageLedger, finalizeUsageLedger, recordDiagnoserCall, recordPlannerFallback, recordPlannerTimeout, recordRulePlannerAttempt } from "../usage-ledger";
 import { AgentPolicy, AgentTask, PlannerTieBreakerPolicy, RunContext, RunLimits, TerminationReason } from "../types";
 
 export interface RunOptions {
@@ -33,6 +34,8 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
     preferRulePlannerOnTie: options.tieBreakerPolicy?.preferRulePlannerOnTie ?? true,
     preferLowerTaskCountOnTie: options.tieBreakerPolicy?.preferLowerTaskCountOnTie ?? true
   };
+  const usageLedger = createUsageLedger();
+  usageLedger.rulePlannerAttempts += 1;
   const planResult = await planTasks(goal, {
     runId,
     mode: options.plannerMode ?? "auto",
@@ -47,7 +50,23 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
     plannerDecisionTrace: planResult.decisionTrace,
     plannerTieBreakerPolicy: tieBreakerPolicy,
     policy,
-    usageLedger: createUsageLedger(),
+    usageLedger,
+    escalationTrace: [
+      {
+        stage: "planner",
+        decision: decideEscalation({
+          goalCategory: "ambiguous",
+          plannerQuality: planResult.qualitySummary,
+          currentFailureType: "none",
+          failurePatterns: [],
+          usageLedger,
+          policyMode: policy.plannerCostMode,
+          providerHealth: { plannerHealthy: true, replannerHealthy: true, diagnoserHealthy: Boolean(process.env.LLM_DIAGNOSER_PROVIDER) }
+        }),
+        llmUsageRationale: planResult.fallbackReason ?? "planner trace recorded",
+        fallbackRationale: planResult.fallbackReason ?? "none"
+      }
+    ],
     goal,
     tasks: planResult.tasks,
     artifacts: [],
@@ -60,10 +79,13 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
     limits,
     startedAt: new Date().toISOString()
   };
-  const usageLedger = context.usageLedger!;
-  usageLedger.plannerCalls = planResult.decisionTrace.llmInvocations;
-  usageLedger.plannerTimeouts = planResult.decisionTrace.timeoutCount;
-  usageLedger.fallbackCounts += planResult.decisionTrace.fallbackReason ? 1 : 0;
+  recordRulePlannerAttempt(context);
+  const usageLedgerRef = context.usageLedger!;
+  usageLedgerRef.llmPlannerCalls = planResult.decisionTrace.llmInvocations;
+  usageLedgerRef.plannerTimeouts = planResult.decisionTrace.timeoutCount;
+  if (planResult.decisionTrace.fallbackReason) {
+    recordPlannerFallback(context);
+  }
 
   const summaries: string[] = [];
   let index = 0;
@@ -145,7 +167,17 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
     context.appProcess = undefined;
 
     context.metrics = calculateRunMetrics(context);
-    if (process.env.LLM_DIAGNOSER_PROVIDER) {
+    const diagnoserEscalation = decideEscalation({
+      goalCategory: "ambiguous",
+      plannerQuality: context.plannerDecisionTrace?.qualitySummary,
+      currentFailureType: context.result?.success ? "none" : "unknown",
+      failurePatterns: [],
+      usageLedger: context.usageLedger ?? createUsageLedger(),
+      policyMode: context.policy?.plannerCostMode ?? "balanced",
+      providerHealth: { plannerHealthy: true, replannerHealthy: true, diagnoserHealthy: Boolean(process.env.LLM_DIAGNOSER_PROVIDER) }
+    });
+    context.escalationTrace = [...(context.escalationTrace ?? []), { stage: "diagnoser", decision: diagnoserEscalation, llmUsageRationale: diagnoserEscalation.llmUsageRationale, fallbackRationale: diagnoserEscalation.fallbackRationale }];
+    if (process.env.LLM_DIAGNOSER_PROVIDER && diagnoserEscalation.useDiagnoser) {
       recordDiagnoserCall(context);
     }
     context.reflection = await reflectOnRun(context);

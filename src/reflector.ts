@@ -18,7 +18,8 @@ export async function reflectOnRun(run: RunContext, options: ReflectOptions = {}
 
   const diagnosis = buildDiagnosis(run, recentRuns, failurePatterns);
   const improvementSuggestions = buildSuggestions(run, recentRuns, failurePatterns);
-  const diagnoser = options.diagnoser ?? createDiagnoserFromEnv();
+  const diagnoserAllowed = run.escalationTrace?.some((item) => item.stage === "diagnoser" && item.decision.useDiagnoser) ?? true;
+  const diagnoser = diagnoserAllowed ? (options.diagnoser ?? createDiagnoserFromEnv()) : undefined;
 
   if (!diagnoser) {
     return {
@@ -31,23 +32,47 @@ export async function reflectOnRun(run: RunContext, options: ReflectOptions = {}
     };
   }
 
-  const llmDiagnosis = await diagnoser.diagnose({
-    goal: run.goal,
-    tasks: run.tasks,
-    metrics: run.metrics,
-    failurePatterns,
-    recentRunsSummary: summarizeRecentRuns(recentRuns),
-    terminationReason: run.terminationReason
-  });
+  try {
+    const llmDiagnosis = await diagnoser.diagnose({
+      goal: run.goal,
+      tasks: run.tasks,
+      metrics: run.metrics,
+      failurePatterns,
+      recentRunsSummary: summarizeRecentRuns(recentRuns),
+      terminationReason: run.terminationReason
+    });
 
-  return {
-    success: run.result?.success ?? false,
-    summary,
-    diagnosis: `${diagnosis} ${llmDiagnosis.diagnosis}`.trim(),
-    topRisks: llmDiagnosis.topRisks,
-    suggestedNextImprovements: llmDiagnosis.suggestedNextImprovements,
-    improvementSuggestions: [...improvementSuggestions, ...llmDiagnosis.suggestedNextImprovements]
-  };
+    const emptyDiagnosis = !llmDiagnosis.diagnosis?.trim() || llmDiagnosis.topRisks.length === 0;
+    const lowQuality = llmDiagnosis.suggestedNextImprovements.length === 0;
+    if (emptyDiagnosis || lowQuality) {
+      return {
+        success: run.result?.success ?? false,
+        summary,
+        diagnosis,
+        topRisks: buildTopRisks(run, recentRuns, failurePatterns),
+        suggestedNextImprovements: improvementSuggestions,
+        improvementSuggestions
+      };
+    }
+
+    return {
+      success: run.result?.success ?? false,
+      summary,
+      diagnosis: `${diagnosis} ${llmDiagnosis.diagnosis}`.trim(),
+      topRisks: llmDiagnosis.topRisks,
+      suggestedNextImprovements: llmDiagnosis.suggestedNextImprovements,
+      improvementSuggestions: [...improvementSuggestions, ...llmDiagnosis.suggestedNextImprovements]
+    };
+  } catch {
+    return {
+      success: run.result?.success ?? false,
+      summary,
+      diagnosis,
+      topRisks: buildTopRisks(run, recentRuns, failurePatterns),
+      suggestedNextImprovements: improvementSuggestions,
+      improvementSuggestions
+    };
+  }
 }
 
 export async function saveReflectionToFile(

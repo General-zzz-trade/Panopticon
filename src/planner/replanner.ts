@@ -1,8 +1,9 @@
+import { decideEscalation, FailureType } from "../escalation-policy";
 import { createReplannerFromEnv, validateLLMReplannerOutput } from "../llm-replanner";
 import { summarizeRecentRuns } from "../llm-diagnoser";
 import { FailurePattern } from "../memory";
 import { AgentTask, RunContext } from "../types";
-import { recordFallback, recordReplannerCall, recordReplannerTimeout } from "../usage-ledger";
+import { recordReplannerCall, recordReplannerFallback, recordReplannerTimeout, recordRuleReplannerAttempt } from "../usage-ledger";
 import { evaluateTaskSequenceQuality } from "./quality";
 import { createTaskFromBlueprint, TaskBlueprint } from "./task-id";
 import { validateTaskShape } from "./validation";
@@ -43,8 +44,19 @@ export async function replanTasks(input: ReplanInput): Promise<ReplanDecision> {
     };
   }
 
+  recordRuleReplannerAttempt(input.context);
   const ruleDecision = buildRuleDecision(input);
-  const shouldTryLLM = shouldUseLLMReplanner(input, ruleDecision);
+  const escalation = decideEscalation({
+    goalCategory: "ambiguous",
+    plannerQuality: input.context.plannerDecisionTrace?.qualitySummary,
+    currentFailureType: classifyFailureType(input.error),
+    failurePatterns: input.failurePatterns,
+    usageLedger: input.context.usageLedger ?? { rulePlannerAttempts: 0, llmPlannerCalls: 0, ruleReplannerAttempts: 0, llmReplannerCalls: 0, llmDiagnoserCalls: 0, plannerCalls: 0, replannerCalls: 0, diagnoserCalls: 0, plannerTimeouts: 0, replannerTimeouts: 0, fallbackCounts: 0, plannerFallbacks: 0, replannerFallbacks: 0, totalLLMInteractions: 0 },
+    policyMode: input.context.policy?.replannerCostMode ?? "balanced",
+    providerHealth: { plannerHealthy: true, replannerHealthy: Boolean(createReplannerFromEnv()), diagnoserHealthy: true }
+  });
+  input.context.escalationTrace = [...(input.context.escalationTrace ?? []), { stage: "replanner", decision: escalation, llmUsageRationale: escalation.llmUsageRationale, fallbackRationale: escalation.fallbackRationale }];
+  const shouldTryLLM = escalation.useLLMReplanner && shouldUseLLMReplanner(input, ruleDecision);
 
   if (shouldTryLLM) {
     const llmDecision = await tryLLMReplanner(input);
@@ -196,7 +208,7 @@ async function tryLLMReplanner(input: ReplanInput): Promise<ReplanDecision | und
 
     if (!validateLLMReplannerOutput(blueprints)) {
       input.context.llmReplannerFallbackCount += 1;
-      recordFallback(input.context);
+      recordReplannerFallback(input.context);
       return undefined;
     }
 
@@ -204,7 +216,7 @@ async function tryLLMReplanner(input: ReplanInput): Promise<ReplanDecision | und
     const validation = validateInsertedTasks(input.context, input.task, insertTasks);
     if (!validation.accepted) {
       input.context.llmReplannerFallbackCount += 1;
-      recordFallback(input.context);
+      recordReplannerFallback(input.context);
       return undefined;
     }
 
@@ -221,7 +233,7 @@ async function tryLLMReplanner(input: ReplanInput): Promise<ReplanDecision | und
       recordReplannerTimeout(input.context);
     }
     input.context.llmReplannerFallbackCount += 1;
-    recordFallback(input.context);
+    recordReplannerFallback(input.context);
     return undefined;
   }
 }
@@ -291,4 +303,12 @@ function createReplanTask(
     { type, payload },
     sourceTask.replanDepth + 1
   );
+}
+
+
+function classifyFailureType(error: string): FailureType {
+  if (/timeout|timed out|did not become available/i.test(error)) return "timeout";
+  if (/selector|not found|not visible/i.test(error)) return "selector_mismatch";
+  if (/assert|expected|text/i.test(error)) return "assert_mismatch";
+  return "unknown";
 }

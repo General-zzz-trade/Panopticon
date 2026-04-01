@@ -13,7 +13,7 @@
     "inspect:run": "tsx src/inspect-run.ts",
     "test": "tsx --test src/**/*.test.ts",
     "test:e2e": "tsx --test src/e2e.integration.test.ts",
-    "test:smoke": "tsx --test src/provider.smoke.test.ts",
+    "test:smoke": "tsx --test src/planner.smoke.test.ts src/replanner.smoke.test.ts src/diagnoser.smoke.test.ts",
     "regression": "npm run test:e2e && npm run benchmark:planner",
     "install:browsers": "playwright install chromium"
   },

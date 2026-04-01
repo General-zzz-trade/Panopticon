@@ -75,6 +75,21 @@ export interface PlannerCandidateTrace {
   fallbackReason?: string;
 }
 
+export interface EscalationTraceRecord {
+  stage: "planner" | "replanner" | "diagnoser";
+  decision: {
+    useRulePlanner: boolean;
+    useLLMPlanner: boolean;
+    useRuleReplanner: boolean;
+    useLLMReplanner: boolean;
+    fallbackToRules: boolean;
+    abortEarly: boolean;
+    useDiagnoser: boolean;
+  };
+  llmUsageRationale: string;
+  fallbackRationale: string;
+}
+
 export interface PlannerDecisionTrace {
   candidatePlanners: PlannerCandidateTrace[];
   chosenPlanner: "template" | "regex" | "llm" | "none";
@@ -101,12 +116,19 @@ export interface AgentPolicy {
 }
 
 export interface UsageLedger {
+  rulePlannerAttempts: number;
+  llmPlannerCalls: number;
+  ruleReplannerAttempts: number;
+  llmReplannerCalls: number;
+  llmDiagnoserCalls: number;
   plannerCalls: number;
   replannerCalls: number;
   diagnoserCalls: number;
   plannerTimeouts: number;
   replannerTimeouts: number;
   fallbackCounts: number;
+  plannerFallbacks: number;
+  replannerFallbacks: number;
   totalLLMInteractions: number;
 }
 
@@ -127,6 +149,7 @@ export interface RunLimits {
 export interface RunContext {
   runId: string;
   plannerUsed?: "template" | "regex" | "llm" | "none";
+  escalationTrace?: EscalationTraceRecord[];
   plannerDecisionTrace?: PlannerDecisionTrace;
   plannerTieBreakerPolicy?: PlannerTieBreakerPolicy;
   policy?: AgentPolicy;

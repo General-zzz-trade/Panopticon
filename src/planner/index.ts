@@ -1,3 +1,4 @@
+import { decideEscalation, GoalCategory } from "../escalation-policy";
 import { createPlannerFromEnv, validateLLMPlannerOutput } from "../llm-planner";
 import { summarizeRecentRuns } from "../llm-diagnoser";
 import { findFailurePatterns, loadRecentRuns } from "../memory";
@@ -10,7 +11,6 @@ import { validateAndMaterializeTasks } from "./validation";
 
 export type PlannerMode = "auto" | "template" | "regex" | "llm";
 type ConcretePlanner = "template" | "regex" | "llm";
-type GoalCategory = "explicit" | "semi-natural" | "ambiguous";
 
 export interface PlanTasksOptions {
   runId: string;
@@ -59,6 +59,18 @@ export async function planTasks(goal: string, options: PlanTasksOptions): Promis
     allowLLMReplannerForSimpleFailures: false
   };
   const goalCategory = classifyGoal(trimmedGoal);
+  const initialEscalation = decideEscalation({
+    goalCategory,
+    plannerQuality: undefined,
+    currentFailureType: "none",
+    failurePatterns: [],
+    usageLedger: {
+      rulePlannerAttempts: 1, llmPlannerCalls: 0, ruleReplannerAttempts: 0, llmReplannerCalls: 0, llmDiagnoserCalls: 0,
+      plannerCalls: 0, replannerCalls: 0, diagnoserCalls: 0, plannerTimeouts: 0, replannerTimeouts: 0, fallbackCounts: 0, plannerFallbacks: 0, replannerFallbacks: 0, totalLLMInteractions: 0
+    },
+    policyMode: policy.plannerCostMode,
+    providerHealth: { plannerHealthy: Boolean(createPlannerFromEnv()), replannerHealthy: true, diagnoserHealthy: true }
+  });
 
   if (mode === "template") {
     return finalizeCandidate(
@@ -112,14 +124,14 @@ export async function planTasks(goal: string, options: PlanTasksOptions): Promis
   );
   evaluatedCandidates.push(regexCandidate);
 
-  const llmTriggerReason = decideLLMTrigger(goalCategory, regexCandidate, policy);
+  const llmTriggerReason = initialEscalation.useLLMPlanner ? decideLLMTrigger(goalCategory, regexCandidate, policy) : undefined;
   if (!llmTriggerReason && isAcceptable(regexCandidate, "medium")) {
     return finalizeCandidate(regexCandidate, evaluatedCandidates, fallbackReason, llmUsageCap, llmInvocations, timeoutCount);
   }
 
   fallbackReason = llmTriggerReason
-    ? `Triggered LLM planner: ${llmTriggerReason}`
-    : "Regex plan was incomplete or low quality.";
+    ? `Triggered LLM planner: ${llmTriggerReason}. ${initialEscalation.llmUsageRationale}`
+    : `Regex plan was incomplete or low quality. ${initialEscalation.fallbackRationale}`;
 
   if (llmUsageCap <= 0) {
     const stableFallback = chooseStableFallback(evaluatedCandidates, tieBreakerPolicy);
