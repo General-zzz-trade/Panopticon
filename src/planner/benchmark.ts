@@ -13,22 +13,36 @@ interface PlannerStats {
   timeoutCount: number;
   fallbackCount: number;
   chosenCounts: Record<string, number>;
-  ledgerPlannerCalls: number;
-  ledgerReplannerCalls: number;
-  ledgerDiagnoserCalls: number;
+  rulePlannerAttempts: number;
+  llmPlannerCalls: number;
+  ruleReplannerAttempts: number;
+  llmReplannerCalls: number;
+  llmDiagnoserCalls: number;
 }
 
 interface RecoveryStats {
   runs: number;
   recoveries: number;
+  llmUsage: number;
+  fallbackCount: number;
   totalInsertedTasks: number;
   totalRetries: number;
-  llmReplannerInvocations: number;
-  fallbackCount: number;
-  ledgerSummary: number;
 }
 
 type Category = "explicit" | "semi-natural" | "ambiguous";
+type RecoveryMode = "rules-only" | "llm-replanner-enabled";
+type RecoveryScenarioName =
+  | "selector mismatch"
+  | "delayed success"
+  | "near-match assert"
+  | "multi-step recovery"
+  | "no safe recovery";
+
+interface RecoveryScenario {
+  name: RecoveryScenarioName;
+  buildGoal(command: string, url: string): string;
+  maxLLMReplannerCalls: number;
+}
 
 async function main(): Promise<void> {
   await runPlanningBenchmark();
@@ -104,9 +118,11 @@ async function runPlanningBenchmark(): Promise<void> {
       entry.llmInvocations += run.plannerDecisionTrace?.llmInvocations ?? 0;
       entry.timeoutCount += run.plannerDecisionTrace?.timeoutCount ?? 0;
       entry.fallbackCount += run.plannerDecisionTrace?.fallbackReason ? 1 : 0;
-      entry.ledgerPlannerCalls += run.usageLedger?.plannerCalls ?? 0;
-      entry.ledgerReplannerCalls += run.usageLedger?.replannerCalls ?? 0;
-      entry.ledgerDiagnoserCalls += run.usageLedger?.diagnoserCalls ?? 0;
+      entry.rulePlannerAttempts += run.usageLedger?.rulePlannerAttempts ?? 0;
+      entry.llmPlannerCalls += run.usageLedger?.llmPlannerCalls ?? 0;
+      entry.ruleReplannerAttempts += run.usageLedger?.ruleReplannerAttempts ?? 0;
+      entry.llmReplannerCalls += run.usageLedger?.llmReplannerCalls ?? 0;
+      entry.llmDiagnoserCalls += run.usageLedger?.llmDiagnoserCalls ?? 0;
 
       const chosenPlanner = run.plannerDecisionTrace?.chosenPlanner ?? "none";
       entry.chosenCounts[chosenPlanner] = (entry.chosenCounts[chosenPlanner] ?? 0) + 1;
@@ -133,75 +149,85 @@ async function runPlanningBenchmark(): Promise<void> {
       console.log(`    llm invocation count: ${entry.llmInvocations}`);
       console.log(`    timeout count: ${entry.timeoutCount}`);
       console.log(`    fallback count: ${entry.fallbackCount}`);
-      console.log(`    usage ledger summary: planner=${entry.ledgerPlannerCalls}, replanner=${entry.ledgerReplannerCalls}, diagnoser=${entry.ledgerDiagnoserCalls}`);
+      console.log(
+        `    usage ledger summary: rulePlannerAttempts=${entry.rulePlannerAttempts}, llmPlannerCalls=${entry.llmPlannerCalls}, ruleReplannerAttempts=${entry.ruleReplannerAttempts}, llmReplannerCalls=${entry.llmReplannerCalls}, llmDiagnoserCalls=${entry.llmDiagnoserCalls}`
+      );
     }
   }
 }
 
 async function runRecoveryBenchmark(): Promise<void> {
-  const modes = ["rules-only", "llm-replanner-enabled"] as const;
-  const stats = new Map<(typeof modes)[number], RecoveryStats>();
-  const port = await getAvailablePort();
-  const url = `http://127.0.0.1:${port}`;
-  const command = `tsx src/sample-app/server.ts ${port}`;
-  const recoveryGoal =
-    `start app "${command}" and wait for server "${url}" and open page "${url}" and click "#login-button" and assert text "Wrong Dashboard" timeout 1 second and stop app`;
-
-  for (const mode of modes) {
-    stats.set(mode, {
-      runs: 0,
-      recoveries: 0,
-      totalInsertedTasks: 0,
-      totalRetries: 0,
-      llmReplannerInvocations: 0,
-      fallbackCount: 0
-      ,
-      ledgerSummary: 0
-    });
-
-    if (mode === "llm-replanner-enabled" && !process.env.LLM_REPLANNER_PROVIDER) {
-      continue;
-    }
-
-    const run = await runGoal(recoveryGoal, {
-      plannerMode: "auto",
-      maxReplansPerRun: 2,
-      maxReplansPerTask: 1,
-      maxLLMPlannerCalls: 0,
-      maxLLMReplannerCalls: mode === "llm-replanner-enabled" ? 1 : 0,
-      maxLLMReplannerTimeouts: 1
-    });
-
-    const entry = stats.get(mode);
-    if (!entry) {
-      continue;
-    }
-
-    entry.runs += 1;
-    entry.recoveries += run.result?.success ? 1 : 0;
-    entry.totalInsertedTasks += run.insertedTaskCount;
-    entry.totalRetries += run.metrics?.totalRetries ?? 0;
-    entry.llmReplannerInvocations += run.llmReplannerInvocations;
-    entry.fallbackCount += run.llmReplannerFallbackCount;
-    entry.ledgerSummary += run.usageLedger?.totalLLMInteractions ?? 0;
+  const previousReplannerProvider = process.env.LLM_REPLANNER_PROVIDER;
+  if (!process.env.LLM_REPLANNER_PROVIDER) {
+    process.env.LLM_REPLANNER_PROVIDER = "mock";
   }
 
-  console.log("");
-  console.log("recovery benchmark:");
-  for (const mode of modes) {
-    const entry = stats.get(mode);
-    if (!entry || entry.runs === 0) {
-      console.log(`  ${mode}: skipped`);
-      continue;
+  try {
+    const modes: RecoveryMode[] = ["rules-only", "llm-replanner-enabled"];
+    const scenarios = await createRecoveryScenarios();
+    const stats = new Map<string, RecoveryStats>();
+
+    for (const scenario of scenarios) {
+      for (const mode of modes) {
+        stats.set(statKey(scenario.name, mode), createEmptyRecoveryStats());
+      }
     }
 
-    console.log(`  ${mode}:`);
-    console.log(`    recovery success rate: ${(entry.recoveries / entry.runs).toFixed(2)}`);
-    console.log(`    average inserted tasks: ${(entry.totalInsertedTasks / entry.runs).toFixed(2)}`);
-    console.log(`    average retries: ${(entry.totalRetries / entry.runs).toFixed(2)}`);
-    console.log(`    llm replanner invocation count: ${entry.llmReplannerInvocations}`);
-    console.log(`    fallback count: ${entry.fallbackCount}`);
-    console.log(`    usage ledger summary: totalLLMInteractions=${entry.ledgerSummary}`);
+    for (const scenario of scenarios) {
+      const port = await getAvailablePort();
+      const url = `http://127.0.0.1:${port}`;
+      const command = `tsx src/sample-app/server.ts ${port}`;
+      const goal = scenario.buildGoal(command, url);
+
+      for (const mode of modes) {
+        const run = await runGoal(goal, {
+          plannerMode: "auto",
+          maxReplansPerRun: 3,
+          maxReplansPerTask: 2,
+          maxLLMPlannerCalls: 0,
+          maxLLMReplannerCalls: mode === "llm-replanner-enabled" ? scenario.maxLLMReplannerCalls : 0,
+          maxLLMReplannerTimeouts: 1
+        });
+
+        const entry = stats.get(statKey(scenario.name, mode));
+        if (!entry) {
+          continue;
+        }
+
+        entry.runs += 1;
+        entry.recoveries += run.result?.success ? 1 : 0;
+        entry.llmUsage += run.usageLedger?.llmReplannerCalls ?? 0;
+        entry.fallbackCount += run.usageLedger?.replannerFallbacks ?? 0;
+        entry.totalInsertedTasks += run.insertedTaskCount;
+        entry.totalRetries += run.metrics?.totalRetries ?? 0;
+      }
+    }
+
+    console.log("");
+    console.log("recovery benchmark:");
+    for (const scenario of scenarios) {
+      console.log(`  ${scenario.name}:`);
+      for (const mode of modes) {
+        const entry = stats.get(statKey(scenario.name, mode));
+        if (!entry || entry.runs === 0) {
+          console.log(`    ${mode}: skipped`);
+          continue;
+        }
+
+        console.log(`    ${mode}:`);
+        console.log(`      recovery success rate: ${(entry.recoveries / entry.runs).toFixed(2)}`);
+        console.log(`      llm usage by scenario: ${entry.llmUsage}`);
+        console.log(`      fallback count by scenario: ${entry.fallbackCount}`);
+        console.log(`      average inserted tasks: ${(entry.totalInsertedTasks / entry.runs).toFixed(2)}`);
+        console.log(`      average retries: ${(entry.totalRetries / entry.runs).toFixed(2)}`);
+      }
+    }
+  } finally {
+    if (previousReplannerProvider === undefined) {
+      delete process.env.LLM_REPLANNER_PROVIDER;
+    } else {
+      process.env.LLM_REPLANNER_PROVIDER = previousReplannerProvider;
+    }
   }
 }
 
@@ -217,9 +243,22 @@ function createEmptyPlannerStats(): PlannerStats {
     timeoutCount: 0,
     fallbackCount: 0,
     chosenCounts: {},
-    ledgerPlannerCalls: 0,
-    ledgerReplannerCalls: 0,
-    ledgerDiagnoserCalls: 0
+    rulePlannerAttempts: 0,
+    llmPlannerCalls: 0,
+    ruleReplannerAttempts: 0,
+    llmReplannerCalls: 0,
+    llmDiagnoserCalls: 0
+  };
+}
+
+function createEmptyRecoveryStats(): RecoveryStats {
+  return {
+    runs: 0,
+    recoveries: 0,
+    llmUsage: 0,
+    fallbackCount: 0,
+    totalInsertedTasks: 0,
+    totalRetries: 0
   };
 }
 
@@ -233,6 +272,50 @@ function formatChosenCounts(chosenCounts: Record<string, number>): string {
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([planner, count]) => `${planner}=${count}`)
     .join(", ");
+}
+
+function statKey(name: RecoveryScenarioName, mode: RecoveryMode): string {
+  return `${name}:${mode}`;
+}
+
+async function createRecoveryScenarios(): Promise<RecoveryScenario[]> {
+  return [
+    {
+      name: "selector mismatch",
+      maxLLMReplannerCalls: 1,
+      buildGoal(command, url) {
+        return `start app "${command}" and wait for server "${url}" and open page "${url}" and click "#wrong-button" and assert text "Dashboard" and stop app`;
+      }
+    },
+    {
+      name: "delayed success",
+      maxLLMReplannerCalls: 1,
+      buildGoal(command, url) {
+        return `start app "${command}" and wait for server "${url}" and open page "${url}" and click "#delayed-login-button" and assert text "Dashboard" timeout 1 second and stop app`;
+      }
+    },
+    {
+      name: "near-match assert",
+      maxLLMReplannerCalls: 1,
+      buildGoal(command, url) {
+        return `start app "${command}" and wait for server "${url}" and open page "${url}" and click "#login-button" and assert text "Wrong Dashboard" timeout 1 second and stop app`;
+      }
+    },
+    {
+      name: "multi-step recovery",
+      maxLLMReplannerCalls: 2,
+      buildGoal(command, url) {
+        return `start app "${command}" and wait for server "${url}" and open page "${url}" and click "#wrong-button" and assert text "Wrong Dashboard" timeout 1 second and stop app`;
+      }
+    },
+    {
+      name: "no safe recovery",
+      maxLLMReplannerCalls: 1,
+      buildGoal(_command, _url) {
+        return `wait for server "http://127.0.0.1:1" timeout 1 second`;
+      }
+    }
+  ];
 }
 
 async function getAvailablePort(): Promise<number> {

@@ -1,8 +1,21 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { createDiagnoserFromEnv, LLMDiagnoser, summarizeRecentRuns } from "./llm-diagnoser";
+import {
+  classifyFailureType,
+  classifyGoalCategory,
+  createEscalationDecisionTrace,
+  decideEscalation
+} from "./escalation-policy";
+import {
+  createDiagnoserFromEnv,
+  isLowQualityDiagnoserOutput,
+  LLMDiagnoser,
+  summarizeRecentRuns,
+  validateLLMDiagnoserOutput
+} from "./llm-diagnoser";
 import { findFailurePatterns, loadRecentRuns } from "./memory";
-import { ReflectionResult, RunContext } from "./types";
+import { recordDiagnoserTimeout, recordLLMDiagnoserCall } from "./usage-ledger";
+import { PlanQualitySummary, ProviderCapabilityHealth, ReflectionResult, RunContext } from "./types";
 
 export interface ReflectOptions {
   diagnoser?: LLMDiagnoser;
@@ -18,36 +31,74 @@ export async function reflectOnRun(run: RunContext, options: ReflectOptions = {}
 
   const diagnosis = buildDiagnosis(run, recentRuns, failurePatterns);
   const improvementSuggestions = buildSuggestions(run, recentRuns, failurePatterns);
+  const topRisks = buildTopRisks(run, recentRuns, failurePatterns);
   const diagnoser = options.diagnoser ?? createDiagnoserFromEnv();
+  const providerHealth = buildProviderHealth(diagnoser);
+  const plannerQuality: PlanQualitySummary["quality"] | "unknown" =
+    run.plannerDecisionTrace?.qualitySummary.quality ?? "unknown";
+  const escalationInput = {
+    stage: "diagnoser" as const,
+    goalCategory: classifyGoalCategory(run.goal),
+    plannerQuality,
+    currentFailureType: run.result?.success
+      ? "none"
+      : classifyFailureType(run.result?.error ?? run.terminationReason, {
+          repeatedFailure: failurePatterns.some((pattern) => pattern.count >= 3)
+        }),
+    failurePatterns,
+    usageLedger: run.usageLedger,
+    policyMode: run.policy?.mode ?? "balanced",
+    providerHealth
+  };
+  const escalationDecision = decideEscalation(escalationInput);
+  const escalationTrace = createEscalationDecisionTrace({
+    ...escalationInput,
+    decision: escalationDecision
+  });
+  run.escalationDecisions.push(escalationTrace);
 
-  if (!diagnoser) {
+  if (!escalationDecision.useLLMDiagnoser || !diagnoser) {
+    return buildRuleReflection(run, summary, diagnosis, topRisks, improvementSuggestions);
+  }
+
+  recordLLMDiagnoserCall(run);
+
+  try {
+    const llmDiagnosis = await diagnoser.diagnose({
+      goal: run.goal,
+      tasks: run.tasks,
+      metrics: run.metrics,
+      failurePatterns,
+      recentRunsSummary: summarizeRecentRuns(recentRuns),
+      terminationReason: run.terminationReason
+    });
+
+    if (!validateLLMDiagnoserOutput(llmDiagnosis)) {
+      escalationTrace.decision.fallbackRationale = "LLM diagnoser returned an invalid schema.";
+      return buildRuleReflection(run, summary, diagnosis, topRisks, improvementSuggestions);
+    }
+
+    if (isLowQualityDiagnoserOutput(llmDiagnosis)) {
+      escalationTrace.decision.fallbackRationale = "LLM diagnoser output was too weak to trust.";
+      return buildRuleReflection(run, summary, diagnosis, topRisks, improvementSuggestions);
+    }
+
     return {
       success: run.result?.success ?? false,
       summary,
-      diagnosis,
-      topRisks: buildTopRisks(run, recentRuns, failurePatterns),
-      suggestedNextImprovements: improvementSuggestions,
-      improvementSuggestions
+      diagnosis: `${diagnosis} ${llmDiagnosis.diagnosis}`.trim(),
+      topRisks: llmDiagnosis.topRisks,
+      suggestedNextImprovements: llmDiagnosis.suggestedNextImprovements,
+      improvementSuggestions: [...improvementSuggestions, ...llmDiagnosis.suggestedNextImprovements]
     };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown LLM diagnoser error.";
+    if (/timed out/i.test(message)) {
+      recordDiagnoserTimeout(run);
+    }
+    escalationTrace.decision.fallbackRationale = message;
+    return buildRuleReflection(run, summary, diagnosis, topRisks, improvementSuggestions);
   }
-
-  const llmDiagnosis = await diagnoser.diagnose({
-    goal: run.goal,
-    tasks: run.tasks,
-    metrics: run.metrics,
-    failurePatterns,
-    recentRunsSummary: summarizeRecentRuns(recentRuns),
-    terminationReason: run.terminationReason
-  });
-
-  return {
-    success: run.result?.success ?? false,
-    summary,
-    diagnosis: `${diagnosis} ${llmDiagnosis.diagnosis}`.trim(),
-    topRisks: llmDiagnosis.topRisks,
-    suggestedNextImprovements: llmDiagnosis.suggestedNextImprovements,
-    improvementSuggestions: [...improvementSuggestions, ...llmDiagnosis.suggestedNextImprovements]
-  };
 }
 
 export async function saveReflectionToFile(
@@ -161,4 +212,49 @@ function buildTopRisks(
     `Most unstable task type: ${topRiskTask}`,
     `Recent failed runs observed: ${recentRunFailures}`
   ];
+}
+
+function buildProviderHealth(diagnoser: LLMDiagnoser | undefined): {
+  planner: ProviderCapabilityHealth;
+  replanner: ProviderCapabilityHealth;
+  diagnoser: ProviderCapabilityHealth;
+} {
+  const unavailable = {
+    configured: false,
+    healthy: false,
+    rationale: "Not evaluated in this diagnoser stage."
+  };
+
+  return {
+    planner: unavailable,
+    replanner: unavailable,
+    diagnoser: diagnoser
+      ? {
+          configured: true,
+          healthy: true,
+          rationale: `Diagnoser provider ${diagnoser.config.provider} is available.`
+        }
+      : {
+          configured: false,
+          healthy: false,
+          rationale: "Diagnoser provider is not configured."
+        }
+  };
+}
+
+function buildRuleReflection(
+  run: RunContext,
+  summary: string,
+  diagnosis: string,
+  topRisks: string[],
+  improvementSuggestions: string[]
+): ReflectionResult {
+  return {
+    success: run.result?.success ?? false,
+    summary,
+    diagnosis,
+    topRisks,
+    suggestedNextImprovements: improvementSuggestions,
+    improvementSuggestions
+  };
 }

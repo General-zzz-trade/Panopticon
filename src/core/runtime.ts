@@ -7,8 +7,8 @@ import { PlannerMode, planTasks } from "../planner";
 import { replanTasks } from "../planner/replanner";
 import { reflectOnRun, saveReflectionToFile } from "../reflector";
 import { stopApp } from "../shell";
-import { createUsageLedger, finalizeUsageLedger, recordDiagnoserCall } from "../usage-ledger";
-import { AgentPolicy, AgentTask, PlannerTieBreakerPolicy, RunContext, RunLimits, TerminationReason } from "../types";
+import { createUsageLedger, finalizeUsageLedger } from "../usage-ledger";
+import { AgentPolicy, PlannerTieBreakerPolicy, RunContext, RunLimits, TerminationReason } from "../types";
 
 export interface RunOptions {
   maxReplansPerRun?: number;
@@ -33,12 +33,14 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
     preferRulePlannerOnTie: options.tieBreakerPolicy?.preferRulePlannerOnTie ?? true,
     preferLowerTaskCountOnTie: options.tieBreakerPolicy?.preferLowerTaskCountOnTie ?? true
   };
+  const usageLedger = createUsageLedger();
   const planResult = await planTasks(goal, {
     runId,
     mode: options.plannerMode ?? "auto",
     maxLLMPlannerCalls: options.maxLLMPlannerCalls ?? 1,
     tieBreakerPolicy,
-    policy
+    policy,
+    usageLedger
   });
 
   const context: RunContext = {
@@ -47,7 +49,8 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
     plannerDecisionTrace: planResult.decisionTrace,
     plannerTieBreakerPolicy: tieBreakerPolicy,
     policy,
-    usageLedger: createUsageLedger(),
+    usageLedger,
+    escalationDecisions: [planResult.decisionTrace.escalationDecision],
     goal,
     tasks: planResult.tasks,
     artifacts: [],
@@ -60,10 +63,6 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
     limits,
     startedAt: new Date().toISOString()
   };
-  const usageLedger = context.usageLedger!;
-  usageLedger.plannerCalls = planResult.decisionTrace.llmInvocations;
-  usageLedger.plannerTimeouts = planResult.decisionTrace.timeoutCount;
-  usageLedger.fallbackCounts += planResult.decisionTrace.fallbackReason ? 1 : 0;
 
   const summaries: string[] = [];
   let index = 0;
@@ -145,9 +144,6 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
     context.appProcess = undefined;
 
     context.metrics = calculateRunMetrics(context);
-    if (process.env.LLM_DIAGNOSER_PROVIDER) {
-      recordDiagnoserCall(context);
-    }
     context.reflection = await reflectOnRun(context);
     finalizeUsageLedger(context);
     await saveReflectionToFile(context.reflection);
@@ -157,7 +153,7 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
   return context;
 }
 
-function validateGoal(goal: string, tasks: AgentTask[]): void {
+function validateGoal(goal: string, tasks: RunContext["tasks"]): void {
   if (!goal.trim()) {
     throw new Error("Goal is required.");
   }

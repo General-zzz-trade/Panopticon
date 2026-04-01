@@ -1,8 +1,25 @@
-import { createReplannerFromEnv, validateLLMReplannerOutput } from "../llm-replanner";
+import {
+  classifyFailureType,
+  classifyGoalCategory,
+  createEscalationDecisionTrace,
+  decideEscalation
+} from "../escalation-policy";
 import { summarizeRecentRuns } from "../llm-diagnoser";
+import { createReplannerFromEnv, validateLLMReplannerOutput } from "../llm-replanner";
 import { FailurePattern } from "../memory";
-import { AgentTask, RunContext } from "../types";
-import { recordFallback, recordReplannerCall, recordReplannerTimeout } from "../usage-ledger";
+import {
+  recordLLMReplannerCall,
+  recordReplannerFallback,
+  recordReplannerTimeout,
+  recordRuleReplannerAttempt
+} from "../usage-ledger";
+import {
+  AgentTask,
+  EscalationPolicyDecision,
+  PlanQualitySummary,
+  ProviderCapabilityHealth,
+  RunContext
+} from "../types";
 import { evaluateTaskSequenceQuality } from "./quality";
 import { createTaskFromBlueprint, TaskBlueprint } from "./task-id";
 import { validateTaskShape } from "./validation";
@@ -25,43 +42,73 @@ export interface ReplanDecision {
 }
 
 export async function replanTasks(input: ReplanInput): Promise<ReplanDecision> {
+  const provider = createReplannerFromEnv();
+  const providerHealth = buildProviderHealth(provider, input.maxLLMReplannerCalls, input.maxLLMReplannerTimeouts, input.context);
+  const repeatedTaskFailure = (input.failurePatterns.find((pattern) => pattern.taskType === input.task.type)?.count ?? 0) >= 3;
+
   if (input.context.replanCount >= input.context.limits.maxReplansPerRun) {
-    return {
-      insertTasks: [],
-      replaceWith: [],
-      abort: true,
-      reason: `Replan budget exceeded for run. Limit: ${input.context.limits.maxReplansPerRun}`
-    };
+    return abortWithTrace(input, providerHealth, "Replan budget exceeded for run.", "Replan budget exceeded for run.");
   }
 
   if (input.task.replanDepth >= input.context.limits.maxReplansPerTask) {
-    return {
-      insertTasks: [],
-      replaceWith: [],
-      abort: true,
-      reason: `Replan budget exceeded for task ${input.task.id}. Limit: ${input.context.limits.maxReplansPerTask}`
-    };
+    return abortWithTrace(
+      input,
+      providerHealth,
+      `Replan budget exceeded for task ${input.task.id}.`,
+      `Replan budget exceeded for task ${input.task.id}.`
+    );
   }
 
+  recordRuleReplannerAttempt(input.context);
   const ruleDecision = buildRuleDecision(input);
-  const shouldTryLLM = shouldUseLLMReplanner(input, ruleDecision);
+  const plannerQuality: PlanQualitySummary["quality"] | "unknown" =
+    input.context.plannerDecisionTrace?.qualitySummary.quality ?? "unknown";
+  const escalationInput = {
+    stage: "replanner" as const,
+    goalCategory: classifyGoalCategory(input.context.goal),
+    plannerQuality,
+    currentFailureType: classifyFailureType(input.error, { repeatedFailure: repeatedTaskFailure }),
+    failurePatterns: input.failurePatterns,
+    usageLedger: input.context.usageLedger,
+    policyMode: input.context.policy?.mode ?? "balanced",
+    providerHealth
+  };
+  const escalationDecision = decideEscalation(escalationInput);
+  const escalationTrace = createEscalationDecisionTrace({
+    ...escalationInput,
+    decision: escalationDecision,
+    taskId: input.task.id
+  });
+  input.context.escalationDecisions.push(escalationTrace);
 
-  if (shouldTryLLM) {
-    const llmDecision = await tryLLMReplanner(input);
+  if (escalationDecision.useLLMReplanner && provider) {
+    const llmDecision = await tryLLMReplanner(input, escalationTrace);
     if (llmDecision) {
       return llmDecision;
     }
   }
 
-  if (ruleDecision) {
-    return ruleDecision;
+  if (ruleDecision && escalationDecision.useRuleReplanner) {
+    return {
+      ...ruleDecision,
+      reason: composeReason(ruleDecision.reason, escalationDecision)
+    };
+  }
+
+  if (escalationDecision.abortEarly) {
+    return {
+      insertTasks: [],
+      replaceWith: [],
+      abort: true,
+      reason: composeReason("Escalation policy aborted replanning early.", escalationDecision)
+    };
   }
 
   return {
     insertTasks: [],
     replaceWith: [],
     abort: true,
-    reason: `No safe replan strategy for ${input.task.type}: ${input.error}`
+    reason: composeReason(`No safe replan strategy for ${input.task.type}: ${input.error}`, escalationDecision)
   };
 }
 
@@ -139,50 +186,18 @@ function buildRuleDecision(input: ReplanInput): ReplanDecision | undefined {
   return undefined;
 }
 
-function shouldUseLLMReplanner(input: ReplanInput, ruleDecision?: ReplanDecision): boolean {
-  if (input.maxLLMReplannerCalls <= 0) {
-    return false;
-  }
-
-  if (input.context.llmReplannerInvocations >= input.maxLLMReplannerCalls) {
-    return false;
-  }
-
-  if (input.context.llmReplannerTimeoutCount >= input.maxLLMReplannerTimeouts) {
-    return false;
-  }
-
-  if (!createReplannerFromEnv()) {
-    return false;
-  }
-
-  const taskFailures = input.failurePatterns.find((pattern) => pattern.taskType === input.task.type)?.count ?? 0;
-  const complexFailure = taskFailures >= 2 || input.task.attempts >= 2 || /selector|visible|not found|timeout/i.test(input.error);
-  const simpleFailure = /timeout|visible/i.test(input.error);
-
-  if (!ruleDecision) {
-    return true;
-  }
-
-  if (!input.context.policy?.allowLLMReplannerForSimpleFailures && simpleFailure && !complexFailure) {
-    return false;
-  }
-
-  if (input.context.policy?.replannerCostMode === "conservative" && !complexFailure) {
-    return false;
-  }
-
-  return complexFailure;
-}
-
-async function tryLLMReplanner(input: ReplanInput): Promise<ReplanDecision | undefined> {
+async function tryLLMReplanner(
+  input: ReplanInput,
+  escalationTrace: RunContext["escalationDecisions"][number]
+): Promise<ReplanDecision | undefined> {
   const replanner = createReplannerFromEnv();
   if (!replanner) {
+    escalationTrace.decision.fallbackRationale = "LLM replanner is unavailable.";
     return undefined;
   }
 
   input.context.llmReplannerInvocations += 1;
-  recordReplannerCall(input.context);
+  recordLLMReplannerCall(input.context);
 
   try {
     const blueprints = await replanner.replan({
@@ -196,7 +211,8 @@ async function tryLLMReplanner(input: ReplanInput): Promise<ReplanDecision | und
 
     if (!validateLLMReplannerOutput(blueprints)) {
       input.context.llmReplannerFallbackCount += 1;
-      recordFallback(input.context);
+      recordReplannerFallback(input.context);
+      escalationTrace.decision.fallbackRationale = "LLM replanner returned invalid task types.";
       return undefined;
     }
 
@@ -204,7 +220,8 @@ async function tryLLMReplanner(input: ReplanInput): Promise<ReplanDecision | und
     const validation = validateInsertedTasks(input.context, input.task, insertTasks);
     if (!validation.accepted) {
       input.context.llmReplannerFallbackCount += 1;
-      recordFallback(input.context);
+      recordReplannerFallback(input.context);
+      escalationTrace.decision.fallbackRationale = validation.reason;
       return undefined;
     }
 
@@ -212,7 +229,7 @@ async function tryLLMReplanner(input: ReplanInput): Promise<ReplanDecision | und
       insertTasks,
       replaceWith: [],
       abort: false,
-      reason: `LLM replanner: ${validation.reason}`
+      reason: composeReason(`LLM replanner: ${validation.reason}`, escalationTrace.decision)
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown LLM replanner error.";
@@ -221,7 +238,8 @@ async function tryLLMReplanner(input: ReplanInput): Promise<ReplanDecision | und
       recordReplannerTimeout(input.context);
     }
     input.context.llmReplannerFallbackCount += 1;
-    recordFallback(input.context);
+    recordReplannerFallback(input.context);
+    escalationTrace.decision.fallbackRationale = message;
     return undefined;
   }
 }
@@ -258,6 +276,14 @@ function validateInsertedTasks(
     };
   }
 
+  const retriesFailingTaskType = insertTasks.some((task) => task.type === sourceTask.type);
+  if (!retriesFailingTaskType) {
+    return {
+      accepted: false,
+      reason: `LLM replanner did not include a recovery step for the failing ${sourceTask.type} task.`
+    };
+  }
+
   const sourceIndex = context.tasks.findIndex((task) => task.id === sourceTask.id);
   const snapshot = [
     ...context.tasks.slice(0, sourceIndex + 1),
@@ -291,4 +317,125 @@ function createReplanTask(
     { type, payload },
     sourceTask.replanDepth + 1
   );
+}
+
+function buildProviderHealth(
+  replanner: ReturnType<typeof createReplannerFromEnv> | undefined,
+  maxLLMReplannerCalls: number,
+  maxLLMReplannerTimeouts: number,
+  context: RunContext
+): {
+  planner: ProviderCapabilityHealth;
+  replanner: ProviderCapabilityHealth;
+  diagnoser: ProviderCapabilityHealth;
+} {
+  const unavailable = {
+    configured: false,
+    healthy: false,
+    rationale: "Not evaluated in this replanner stage."
+  };
+
+  return {
+    planner: unavailable,
+    replanner: buildReplannerCapabilityHealth(replanner, maxLLMReplannerCalls, maxLLMReplannerTimeouts, context),
+    diagnoser: unavailable
+  };
+}
+
+function buildReplannerCapabilityHealth(
+  replanner: ReturnType<typeof createReplannerFromEnv> | undefined,
+  maxLLMReplannerCalls: number,
+  maxLLMReplannerTimeouts: number,
+  context: RunContext
+): ProviderCapabilityHealth {
+  if (!replanner) {
+    return {
+      configured: false,
+      healthy: false,
+      rationale: "Replanner provider is not configured."
+    };
+  }
+
+  if (maxLLMReplannerCalls <= 0) {
+    return {
+      configured: true,
+      healthy: false,
+      rationale: "Replanner LLM usage cap is zero."
+    };
+  }
+
+  if (context.llmReplannerInvocations >= maxLLMReplannerCalls) {
+    return {
+      configured: true,
+      healthy: false,
+      rationale: "Replanner LLM call budget is exhausted."
+    };
+  }
+
+  if (context.llmReplannerTimeoutCount >= maxLLMReplannerTimeouts) {
+    return {
+      configured: true,
+      healthy: false,
+      rationale: "Replanner LLM timeout budget is exhausted."
+    };
+  }
+
+  return {
+    configured: true,
+    healthy: true,
+    rationale: `Replanner provider ${replanner.config.provider} is available.`
+  };
+}
+
+function abortWithTrace(
+  input: ReplanInput,
+  providerHealth: {
+    planner: ProviderCapabilityHealth;
+    replanner: ProviderCapabilityHealth;
+    diagnoser: ProviderCapabilityHealth;
+  },
+  reason: string,
+  shortReason: string
+): ReplanDecision {
+  const decision: EscalationPolicyDecision = {
+    useRulePlanner: false,
+    useLLMPlanner: false,
+    useRuleReplanner: false,
+    useLLMReplanner: false,
+    useRuleDiagnoser: false,
+    useLLMDiagnoser: false,
+    fallbackToRules: false,
+    abortEarly: true,
+    rationale: [reason],
+    fallbackRationale: shortReason
+  };
+  input.context.escalationDecisions.push(
+    createEscalationDecisionTrace({
+      stage: "replanner",
+      taskId: input.task.id,
+      goalCategory: classifyGoalCategory(input.context.goal),
+      plannerQuality: input.context.plannerDecisionTrace?.qualitySummary.quality ?? "unknown",
+      currentFailureType: classifyFailureType(input.error),
+      failurePatterns: input.failurePatterns,
+      usageLedger: input.context.usageLedger,
+      policyMode: input.context.policy?.mode ?? "balanced",
+      providerHealth,
+      decision
+    })
+  );
+
+  return {
+    insertTasks: [],
+    replaceWith: [],
+    abort: true,
+    reason
+  };
+}
+
+function composeReason(baseReason: string, decision: EscalationPolicyDecision): string {
+  const rationale = decision.useLLMReplanner
+    ? decision.llmUsageRationale
+    : decision.fallbackRationale ?? decision.rationale.at(-1);
+
+  return rationale ? `${baseReason} Escalation: ${rationale}` : baseReason;
 }

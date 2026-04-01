@@ -1,7 +1,30 @@
+import {
+  classifyFailureType,
+  classifyGoalCategory,
+  createEscalationDecisionTrace,
+  decideEscalation
+} from "../escalation-policy";
 import { createPlannerFromEnv, validateLLMPlannerOutput } from "../llm-planner";
 import { summarizeRecentRuns } from "../llm-diagnoser";
 import { findFailurePatterns, loadRecentRuns } from "../memory";
-import { AgentPolicy, AgentTask, PlanQualitySummary, PlannerDecisionTrace, PlannerTieBreakerPolicy } from "../types";
+import {
+  createUsageLedger,
+  recordLLMPlannerCall,
+  recordPlannerFallback,
+  recordPlannerTimeout,
+  recordRulePlannerAttempt
+} from "../usage-ledger";
+import {
+  AgentPolicy,
+  AgentTask,
+  EscalationPolicyDecision,
+  GoalCategory,
+  PlanQualitySummary,
+  PlannerDecisionTrace,
+  PlannerTieBreakerPolicy,
+  ProviderCapabilityHealth,
+  UsageLedger
+} from "../types";
 import { evaluateTaskSequenceQuality } from "./quality";
 import { createRegexPlan } from "./regex-planner";
 import { matchTemplatePlan } from "./templates";
@@ -10,7 +33,6 @@ import { validateAndMaterializeTasks } from "./validation";
 
 export type PlannerMode = "auto" | "template" | "regex" | "llm";
 type ConcretePlanner = "template" | "regex" | "llm";
-type GoalCategory = "explicit" | "semi-natural" | "ambiguous";
 
 export interface PlanTasksOptions {
   runId: string;
@@ -18,6 +40,7 @@ export interface PlanTasksOptions {
   maxLLMPlannerCalls?: number;
   tieBreakerPolicy?: PlannerTieBreakerPolicy;
   policy?: AgentPolicy;
+  usageLedger?: UsageLedger;
 }
 
 export interface PlanTasksResult {
@@ -40,11 +63,7 @@ interface PlanCandidate {
 
 export async function planTasks(goal: string, options: PlanTasksOptions): Promise<PlanTasksResult> {
   const trimmedGoal = goal.trim();
-
-  if (!trimmedGoal) {
-    return emptyPlanResult([], undefined, options.maxLLMPlannerCalls ?? 1);
-  }
-
+  const usageLedger = options.usageLedger ?? createUsageLedger();
   const mode = options.mode ?? "auto";
   const llmUsageCap = options.maxLLMPlannerCalls ?? 1;
   const tieBreakerPolicy = options.tieBreakerPolicy ?? {
@@ -53,42 +72,74 @@ export async function planTasks(goal: string, options: PlanTasksOptions): Promis
     preferLowerTaskCountOnTie: true
   };
   const policy = options.policy ?? {
+    mode: "balanced",
     plannerCostMode: "balanced",
     replannerCostMode: "balanced",
     preferRuleSystemsOnCheapGoals: true,
     allowLLMReplannerForSimpleFailures: false
   };
-  const goalCategory = classifyGoal(trimmedGoal);
+  const goalCategory = classifyGoalCategory(trimmedGoal);
+  const failurePatterns = trimmedGoal ? await findFailurePatterns() : [];
+
+  if (!trimmedGoal) {
+    const decision = forcedRuleDecision("template", "Goal was empty; planner aborted before execution.");
+    const escalationTrace = createEscalationDecisionTrace({
+      stage: "planner",
+      goalCategory,
+      plannerQuality: "unknown",
+      currentFailureType: "unknown",
+      failurePatterns,
+      usageLedger,
+      policyMode: policy.mode,
+      providerHealth: buildProviderHealth(undefined, llmUsageCap),
+      decision
+    });
+
+    return emptyPlanResult([], "Goal was empty.", llmUsageCap, 0, 0, goalCategory, policy.mode, escalationTrace);
+  }
 
   if (mode === "template") {
-    return finalizeCandidate(
-      buildCandidate("template", trimmedGoal, materializePlan(options.runId, matchTemplatePlan(trimmedGoal))),
-      [],
-      undefined,
-      llmUsageCap,
-      0
-    );
+    recordRulePlannerAttempt({ usageLedger });
+    const candidate = buildCandidate("template", trimmedGoal, materializePlan(options.runId, matchTemplatePlan(trimmedGoal)));
+    const escalationTrace = createEscalationDecisionTrace({
+      stage: "planner",
+      goalCategory,
+      plannerQuality: candidate.qualitySummary.quality,
+      currentFailureType: candidate.valid ? "none" : classifyFailureType(undefined, { lowQuality: true }),
+      failurePatterns,
+      usageLedger,
+      policyMode: policy.mode,
+      providerHealth: buildProviderHealth(undefined, llmUsageCap),
+      decision: forcedRuleDecision("template", "Planner mode forced to template.")
+    });
+
+    return finalizeCandidate(candidate, [candidate], undefined, llmUsageCap, 0, 0, goalCategory, policy.mode, escalationTrace);
   }
 
   if (mode === "regex") {
-    return finalizeCandidate(
-      buildCandidate("regex", trimmedGoal, materializePlan(options.runId, createRegexPlan(trimmedGoal))),
-      [],
-      undefined,
-      llmUsageCap,
-      0
-    );
+    recordRulePlannerAttempt({ usageLedger });
+    const candidate = buildCandidate("regex", trimmedGoal, materializePlan(options.runId, createRegexPlan(trimmedGoal)));
+    const escalationTrace = createEscalationDecisionTrace({
+      stage: "planner",
+      goalCategory,
+      plannerQuality: candidate.qualitySummary.quality,
+      currentFailureType: candidate.valid ? "none" : classifyFailureType(undefined, { lowQuality: true }),
+      failurePatterns,
+      usageLedger,
+      policyMode: policy.mode,
+      providerHealth: buildProviderHealth(undefined, llmUsageCap),
+      decision: forcedRuleDecision("regex", "Planner mode forced to regex.")
+    });
+
+    return finalizeCandidate(candidate, [candidate], undefined, llmUsageCap, 0, 0, goalCategory, policy.mode, escalationTrace);
   }
 
   if (mode === "llm") {
-    return await planWithLLMOnly(trimmedGoal, options.runId, llmUsageCap);
+    return await planWithLLMOnly(trimmedGoal, options.runId, llmUsageCap, goalCategory, policy, usageLedger, failurePatterns);
   }
 
   const evaluatedCandidates: PlanCandidate[] = [];
-  let fallbackReason: string | undefined;
-  let llmInvocations = 0;
-  let timeoutCount = 0;
-
+  recordRulePlannerAttempt({ usageLedger });
   const templateCandidate = buildCandidate(
     "template",
     trimmedGoal,
@@ -96,15 +147,7 @@ export async function planTasks(goal: string, options: PlanTasksOptions): Promis
   );
   evaluatedCandidates.push(templateCandidate);
 
-  if (goalCategory === "explicit" && policy.preferRuleSystemsOnCheapGoals && isAcceptable(templateCandidate, "high")) {
-    return finalizeCandidate(templateCandidate, evaluatedCandidates, undefined, llmUsageCap, llmInvocations, timeoutCount);
-  }
-
-  fallbackReason =
-    goalCategory === "explicit"
-      ? "Template plan was incomplete or low quality."
-      : `Template plan was not trusted for ${goalCategory} goal phrasing.`;
-
+  recordRulePlannerAttempt({ usageLedger });
   const regexCandidate = buildCandidate(
     "regex",
     trimmedGoal,
@@ -112,57 +155,74 @@ export async function planTasks(goal: string, options: PlanTasksOptions): Promis
   );
   evaluatedCandidates.push(regexCandidate);
 
-  const llmTriggerReason = decideLLMTrigger(goalCategory, regexCandidate, policy);
-  if (!llmTriggerReason && isAcceptable(regexCandidate, "medium")) {
-    return finalizeCandidate(regexCandidate, evaluatedCandidates, fallbackReason, llmUsageCap, llmInvocations, timeoutCount);
-  }
+  const bestRuleCandidate = chooseStableFallback(evaluatedCandidates, tieBreakerPolicy);
+  const provider = createPlannerFromEnv();
+  const providerHealth = buildProviderHealth(provider, llmUsageCap);
+  const plannerQuality: PlanQualitySummary["quality"] | "unknown" = bestRuleCandidate?.qualitySummary.quality ?? "unknown";
+  const currentFailureType = bestRuleCandidate && bestRuleCandidate.qualitySummary.quality !== "low"
+    ? "none"
+    : classifyFailureType(undefined, {
+        lowQuality: true,
+        providerUnavailable: !providerHealth.planner.configured && !bestRuleCandidate
+      });
+  const escalationInput = {
+    stage: "planner" as const,
+    goalCategory,
+    plannerQuality,
+    currentFailureType,
+    failurePatterns,
+    usageLedger,
+    policyMode: policy.mode,
+    providerHealth
+  };
+  const escalationDecision = decideEscalation(escalationInput);
+  const escalationTrace = createEscalationDecisionTrace({
+    ...escalationInput,
+    decision: escalationDecision
+  });
 
-  fallbackReason = llmTriggerReason
-    ? `Triggered LLM planner: ${llmTriggerReason}`
-    : "Regex plan was incomplete or low quality.";
+  let llmInvocations = 0;
+  let timeoutCount = 0;
 
-  if (llmUsageCap <= 0) {
-    const stableFallback = chooseStableFallback(evaluatedCandidates, tieBreakerPolicy);
-    if (stableFallback) {
+  if (!escalationDecision.useLLMPlanner || !provider) {
+    const fallbackReason = choosePlannerFallbackReason(bestRuleCandidate, escalationDecision);
+    if (fallbackReason) {
+      recordPlannerFallback({ usageLedger });
+    }
+
+    if (bestRuleCandidate) {
       return finalizeCandidate(
-        stableFallback,
+        bestRuleCandidate,
         evaluatedCandidates,
-        "LLM planner was eligible but disabled by usage cap; kept the most stable non-LLM plan.",
+        fallbackReason,
         llmUsageCap,
         llmInvocations,
-        timeoutCount
+        timeoutCount,
+        goalCategory,
+        policy.mode,
+        escalationTrace
       );
     }
 
-    return emptyPlanResult(evaluatedCandidates, "LLM planner was eligible but disabled by usage cap.", llmUsageCap);
+    return emptyPlanResult(
+      evaluatedCandidates,
+      fallbackReason ?? "No valid rule planner result was produced.",
+      llmUsageCap,
+      llmInvocations,
+      timeoutCount,
+      goalCategory,
+      policy.mode,
+      escalationTrace
+    );
   }
 
-  const llmPlanner = createPlannerFromEnv();
-  if (!llmPlanner) {
-    const stableFallback = chooseStableFallback(evaluatedCandidates, tieBreakerPolicy);
-    if (stableFallback) {
-      return finalizeCandidate(
-        stableFallback,
-        evaluatedCandidates,
-        "LLM planner was eligible but not configured; kept the most stable non-LLM plan.",
-        llmUsageCap,
-        llmInvocations,
-        timeoutCount
-      );
-    }
-
-    return emptyPlanResult(evaluatedCandidates, "LLM planner was eligible but not configured.", llmUsageCap);
-  }
-
-  const [recentRuns, failurePatterns] = await Promise.all([
-    loadRecentRuns(5),
-    findFailurePatterns()
-  ]);
+  const [recentRuns] = await Promise.all([loadRecentRuns(5)]);
 
   llmInvocations += 1;
+  recordLLMPlannerCall({ usageLedger });
 
   try {
-    const llmBlueprints = await llmPlanner.plan({
+    const llmBlueprints = await provider.plan({
       goal: trimmedGoal,
       recentRunsSummary: summarizeRecentRuns(recentRuns),
       failurePatterns
@@ -170,82 +230,111 @@ export async function planTasks(goal: string, options: PlanTasksOptions): Promis
 
     if (!validateLLMPlannerOutput(llmBlueprints)) {
       evaluatedCandidates.push(
-        invalidCandidate("llm", "LLM output failed schema validation.", llmBlueprints.length, llmTriggerReason)
+        invalidCandidate("llm", "LLM output failed schema validation.", llmBlueprints.length, escalationDecision.llmUsageRationale)
       );
-      const stableFallback = chooseStableFallback(evaluatedCandidates, tieBreakerPolicy);
-      if (stableFallback) {
-        return finalizeCandidate(
-          stableFallback,
-          evaluatedCandidates,
-          "LLM planner returned invalid tasks; kept the more stable fallback plan.",
-          llmUsageCap,
-          llmInvocations,
-          timeoutCount
-        );
-      }
 
-      return emptyPlanResult(evaluatedCandidates, "LLM planner returned invalid tasks.", llmUsageCap, llmInvocations, timeoutCount);
+      const fallbackReason = "LLM planner returned invalid tasks; fell back to the best rule plan.";
+      recordPlannerFallback({ usageLedger });
+      return finalizePlannerFallback(
+        bestRuleCandidate,
+        evaluatedCandidates,
+        fallbackReason,
+        llmUsageCap,
+        llmInvocations,
+        timeoutCount,
+        goalCategory,
+        policy.mode,
+        escalationTrace
+      );
     }
 
     const llmCandidate = buildCandidate(
       "llm",
       trimmedGoal,
       materializePlan(options.runId, llmBlueprints),
-      llmTriggerReason
+      escalationDecision.llmUsageRationale
     );
     evaluatedCandidates.push(llmCandidate);
 
     if (!llmCandidate.valid || llmCandidate.qualitySummary.quality === "low") {
-      const stableFallback = chooseStableFallback(evaluatedCandidates, tieBreakerPolicy);
-      if (stableFallback) {
-        return finalizeCandidate(
-          stableFallback,
-          evaluatedCandidates,
-          `LLM plan was low quality; kept the more stable ${stableFallback.planner} plan.`,
-          llmUsageCap,
-          llmInvocations,
-          timeoutCount
-        );
-      }
+      const fallbackReason = "LLM planner returned low-quality tasks; fell back to the best rule plan.";
+      recordPlannerFallback({ usageLedger });
+      return finalizePlannerFallback(
+        bestRuleCandidate,
+        evaluatedCandidates,
+        fallbackReason,
+        llmUsageCap,
+        llmInvocations,
+        timeoutCount,
+        goalCategory,
+        policy.mode,
+        escalationTrace
+      );
     }
 
     const bestCandidate = chooseBestCandidate(evaluatedCandidates, tieBreakerPolicy);
     if (!bestCandidate) {
-      return emptyPlanResult(evaluatedCandidates, "No planner produced a valid plan.", llmUsageCap, llmInvocations, timeoutCount);
-    }
-
-    if (bestCandidate.planner === "llm") {
-      return finalizeCandidate(llmCandidate, evaluatedCandidates, fallbackReason, llmUsageCap, llmInvocations, timeoutCount);
-    }
-
-    return finalizeCandidate(
-      bestCandidate,
-      evaluatedCandidates,
-      `LLM plan was lower quality than ${bestCandidate.planner}; kept the more stable fallback plan.`,
-      llmUsageCap,
-      llmInvocations,
-      timeoutCount
-    );
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown LLM planner error.";
-    if (/timed out/i.test(message)) {
-      timeoutCount += 1;
-    }
-
-    evaluatedCandidates.push(invalidCandidate("llm", message, 0, llmTriggerReason, /timed out/i.test(message)));
-    const stableFallback = chooseStableFallback(evaluatedCandidates, tieBreakerPolicy);
-    if (stableFallback) {
-      return finalizeCandidate(
-        stableFallback,
+      return emptyPlanResult(
         evaluatedCandidates,
-        `LLM planner failed (${message}); kept the more stable ${stableFallback.planner} plan.`,
+        "No planner produced a valid plan.",
         llmUsageCap,
         llmInvocations,
-        timeoutCount
+        timeoutCount,
+        goalCategory,
+        policy.mode,
+        escalationTrace
       );
     }
 
-    return emptyPlanResult(evaluatedCandidates, `LLM planner failed: ${message}`, llmUsageCap, llmInvocations, timeoutCount);
+    if (bestCandidate.planner === "llm") {
+      return finalizeCandidate(
+        llmCandidate,
+        evaluatedCandidates,
+        undefined,
+        llmUsageCap,
+        llmInvocations,
+        timeoutCount,
+        goalCategory,
+        policy.mode,
+        escalationTrace
+      );
+    }
+
+    const fallbackReason = `LLM planner produced low-quality output relative to ${bestCandidate.planner}; kept the more stable rule plan.`;
+    recordPlannerFallback({ usageLedger });
+    return finalizeCandidate(
+      bestCandidate,
+      evaluatedCandidates,
+      fallbackReason,
+      llmUsageCap,
+      llmInvocations,
+      timeoutCount,
+      goalCategory,
+      policy.mode,
+      escalationTrace
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown LLM planner error.";
+    const timedOut = /timed out/i.test(message);
+    if (timedOut) {
+      timeoutCount += 1;
+      recordPlannerTimeout({ usageLedger });
+    }
+
+    evaluatedCandidates.push(invalidCandidate("llm", message, 0, escalationDecision.llmUsageRationale, timedOut));
+    const fallbackReason = `LLM planner failed (${message}); fell back to the best rule plan.`;
+    recordPlannerFallback({ usageLedger });
+    return finalizePlannerFallback(
+      bestRuleCandidate,
+      evaluatedCandidates,
+      fallbackReason,
+      llmUsageCap,
+      llmInvocations,
+      timeoutCount,
+      goalCategory,
+      policy.mode,
+      escalationTrace
+    );
   }
 }
 
@@ -299,16 +388,6 @@ function invalidCandidate(
     timeout,
     fallbackReason: issue
   };
-}
-
-function isAcceptable(candidate: PlanCandidate, minimumQuality: "high" | "medium"): boolean {
-  if (!candidate.valid || !candidate.qualitySummary.complete) {
-    return false;
-  }
-
-  return minimumQuality === "high"
-    ? candidate.qualitySummary.quality === "high"
-    : candidate.qualitySummary.quality !== "low";
 }
 
 function chooseStableFallback(candidates: PlanCandidate[], tieBreakerPolicy: PlannerTieBreakerPolicy): PlanCandidate | undefined {
@@ -374,7 +453,10 @@ function finalizeCandidate(
   fallbackReason: string | undefined,
   llmUsageCap: number,
   llmInvocations: number,
-  timeoutCount = 0
+  timeoutCount: number,
+  goalCategory: GoalCategory,
+  policyMode: AgentPolicy["mode"],
+  escalationTrace: PlannerDecisionTrace["escalationDecision"]
 ): PlanTasksResult {
   const candidateTraces = candidates.map((candidate) => ({
     planner: candidate.planner,
@@ -396,8 +478,13 @@ function finalizeCandidate(
       chosenPlanner: chosen.valid ? chosen.planner : "none",
       qualitySummary: chosen.qualitySummary,
       qualityScore: chosen.qualitySummary.score,
+      goalCategory,
+      policyMode,
       triggerReason: chosen.triggerReason,
       fallbackReason,
+      llmUsageRationale: escalationTrace.decision.llmUsageRationale,
+      fallbackRationale: fallbackReason ?? escalationTrace.decision.fallbackRationale,
+      escalationDecision: escalationTrace,
       llmInvocations,
       llmUsageCap,
       timeoutCount
@@ -405,57 +492,117 @@ function finalizeCandidate(
   };
 }
 
-async function planWithLLMOnly(goal: string, runId: string, llmUsageCap: number): Promise<PlanTasksResult> {
-  if (llmUsageCap <= 0) {
-    return emptyPlanResult([], "LLM planner disabled by usage cap.", llmUsageCap);
+async function planWithLLMOnly(
+  goal: string,
+  runId: string,
+  llmUsageCap: number,
+  goalCategory: GoalCategory,
+  policy: AgentPolicy,
+  usageLedger: UsageLedger,
+  failurePatterns: Awaited<ReturnType<typeof findFailurePatterns>>
+): Promise<PlanTasksResult> {
+  const provider = createPlannerFromEnv();
+  const providerHealth = buildProviderHealth(provider, llmUsageCap);
+  const llmAllowed = providerHealth.planner.configured && providerHealth.planner.healthy;
+  const decision: EscalationPolicyDecision = {
+    useRulePlanner: false,
+    useLLMPlanner: llmAllowed,
+    useRuleReplanner: false,
+    useLLMReplanner: false,
+    useRuleDiagnoser: false,
+    useLLMDiagnoser: false,
+    fallbackToRules: false,
+    abortEarly: !llmAllowed,
+    rationale: [llmAllowed ? "Planner mode forced to llm." : providerHealth.planner.rationale],
+    llmUsageRationale: llmAllowed ? "Planner mode forced to llm." : undefined,
+    fallbackRationale: !llmAllowed ? providerHealth.planner.rationale : undefined
+  };
+  const escalationTrace = createEscalationDecisionTrace({
+    stage: "planner",
+    goalCategory,
+    plannerQuality: "unknown",
+    currentFailureType: llmAllowed ? "none" : classifyFailureType(undefined, { providerUnavailable: true }),
+    failurePatterns,
+    usageLedger,
+    policyMode: policy.mode,
+    providerHealth,
+    decision
+  });
+
+  if (!provider || !llmAllowed) {
+    return emptyPlanResult([], decision.fallbackRationale ?? "LLM planner is unavailable.", llmUsageCap, 0, 0, goalCategory, policy.mode, escalationTrace);
   }
 
-  const llmPlanner = createPlannerFromEnv();
-  if (!llmPlanner) {
-    return emptyPlanResult([], "LLM planner is not configured.", llmUsageCap);
-  }
+  const [recentRuns] = await Promise.all([loadRecentRuns(5)]);
 
-  const [recentRuns, failurePatterns] = await Promise.all([
-    loadRecentRuns(5),
-    findFailurePatterns()
-  ]);
+  recordLLMPlannerCall({ usageLedger });
 
   try {
-    const llmBlueprints = await llmPlanner.plan({
+    const llmBlueprints = await provider.plan({
       goal,
       recentRunsSummary: summarizeRecentRuns(recentRuns),
       failurePatterns
     });
 
     if (!validateLLMPlannerOutput(llmBlueprints)) {
+      recordPlannerFallback({ usageLedger });
       return emptyPlanResult(
         [invalidCandidate("llm", "LLM output failed schema validation.", llmBlueprints.length, "Forced llm mode")],
         "LLM planner returned invalid tasks.",
         llmUsageCap,
-        1
+        1,
+        0,
+        goalCategory,
+        policy.mode,
+        escalationTrace
       );
     }
 
     const llmCandidate = buildCandidate("llm", goal, materializePlan(runId, llmBlueprints), "Forced llm mode");
-    return finalizeCandidate(llmCandidate, [llmCandidate], undefined, llmUsageCap, 1);
+    if (!llmCandidate.valid || llmCandidate.qualitySummary.quality === "low") {
+      recordPlannerFallback({ usageLedger });
+      return emptyPlanResult(
+        [llmCandidate],
+        "LLM planner returned low-quality tasks.",
+        llmUsageCap,
+        1,
+        0,
+        goalCategory,
+        policy.mode,
+        escalationTrace
+      );
+    }
+
+    return finalizeCandidate(llmCandidate, [llmCandidate], undefined, llmUsageCap, 1, 0, goalCategory, policy.mode, escalationTrace);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown LLM planner error.";
+    const timedOut = /timed out/i.test(message);
+    if (timedOut) {
+      recordPlannerTimeout({ usageLedger });
+    }
+    recordPlannerFallback({ usageLedger });
     return emptyPlanResult(
-      [invalidCandidate("llm", message, 0, "Forced llm mode", /timed out/i.test(message))],
+      [invalidCandidate("llm", message, 0, "Forced llm mode", timedOut)],
       `LLM planner failed: ${message}`,
       llmUsageCap,
       1,
-      /timed out/i.test(message) ? 1 : 0
+      timedOut ? 1 : 0,
+      goalCategory,
+      policy.mode,
+      escalationTrace
     );
   }
 }
 
 function emptyPlanResult(
   candidates: PlanCandidate[],
-  fallbackReason?: string,
-  llmUsageCap = 1,
-  llmInvocations = 0,
-  timeoutCount = 0
+  fallbackReason: string | undefined,
+  llmUsageCap: number,
+  llmInvocations: number,
+  timeoutCount: number,
+  goalCategory: GoalCategory,
+  policyMode: AgentPolicy["mode"],
+  escalationTrace: PlannerDecisionTrace["escalationDecision"]
 ): PlanTasksResult {
   const qualitySummary = emptyQuality();
   return {
@@ -476,7 +623,12 @@ function emptyPlanResult(
       chosenPlanner: "none",
       qualitySummary,
       qualityScore: 0,
+      goalCategory,
+      policyMode,
       fallbackReason,
+      llmUsageRationale: escalationTrace.decision.llmUsageRationale,
+      fallbackRationale: fallbackReason ?? escalationTrace.decision.fallbackRationale,
+      escalationDecision: escalationTrace,
       llmInvocations,
       llmUsageCap,
       timeoutCount
@@ -484,57 +636,110 @@ function emptyPlanResult(
   };
 }
 
-function classifyGoal(goal: string): GoalCategory {
-  const explicitSignals = [
-    /start app/i,
-    /wait for server/i,
-    /open page/i,
-    /assert text/i,
-    /\bclick\s+"/i,
-    /\bstop app\b/i
-  ].filter((pattern) => pattern.test(goal)).length;
-  const naturalSignals = [
-    /launch/i,
-    /using/i,
-    /confirm/i,
-    /appears/i,
-    /make .* work/i,
-    /prove/i,
-    /leave evidence/i
-  ].filter((pattern) => pattern.test(goal)).length;
-
-  if (explicitSignals >= 2 && naturalSignals === 0) {
-    return "explicit";
+function finalizePlannerFallback(
+  bestRuleCandidate: PlanCandidate | undefined,
+  candidates: PlanCandidate[],
+  fallbackReason: string,
+  llmUsageCap: number,
+  llmInvocations: number,
+  timeoutCount: number,
+  goalCategory: GoalCategory,
+  policyMode: AgentPolicy["mode"],
+  escalationTrace: PlannerDecisionTrace["escalationDecision"]
+): PlanTasksResult {
+  if (!bestRuleCandidate) {
+    return emptyPlanResult(candidates, fallbackReason, llmUsageCap, llmInvocations, timeoutCount, goalCategory, policyMode, escalationTrace);
   }
 
-  if (naturalSignals > 0) {
-    return "semi-natural";
-  }
-
-  return "ambiguous";
+  return finalizeCandidate(
+    bestRuleCandidate,
+    candidates,
+    fallbackReason,
+    llmUsageCap,
+    llmInvocations,
+    timeoutCount,
+    goalCategory,
+    policyMode,
+    escalationTrace
+  );
 }
 
-function decideLLMTrigger(
-  goalCategory: GoalCategory,
-  regexCandidate: PlanCandidate,
-  policy: AgentPolicy
+function buildProviderHealth(
+  provider: ReturnType<typeof createPlannerFromEnv> | undefined,
+  llmUsageCap: number
+): {
+  planner: ProviderCapabilityHealth;
+  replanner: ProviderCapabilityHealth;
+  diagnoser: ProviderCapabilityHealth;
+} {
+  const planner = buildPlannerCapabilityHealth(provider, llmUsageCap);
+  const unavailable = {
+    configured: false,
+    healthy: false,
+    rationale: "Not evaluated in this planner stage."
+  };
+
+  return {
+    planner,
+    replanner: unavailable,
+    diagnoser: unavailable
+  };
+}
+
+function buildPlannerCapabilityHealth(
+  provider: ReturnType<typeof createPlannerFromEnv> | undefined,
+  llmUsageCap: number
+): ProviderCapabilityHealth {
+  if (!provider) {
+    return {
+      configured: false,
+      healthy: false,
+      rationale: "Planner provider is not configured."
+    };
+  }
+
+  if (llmUsageCap <= 0) {
+    return {
+      configured: true,
+      healthy: false,
+      rationale: "Planner LLM usage cap is zero."
+    };
+  }
+
+  return {
+    configured: true,
+    healthy: true,
+    rationale: `Planner provider ${provider.config.provider} is available.`
+  };
+}
+
+function choosePlannerFallbackReason(
+  bestRuleCandidate: PlanCandidate | undefined,
+  decision: EscalationPolicyDecision
 ): string | undefined {
-  if (policy.plannerCostMode === "aggressive" && goalCategory !== "explicit") {
-    return `Goal classified as ${goalCategory}.`;
+  if (!bestRuleCandidate) {
+    return decision.fallbackRationale ?? "No valid rule planner result was produced.";
   }
 
-  if (goalCategory === "ambiguous") {
-    return "Goal classified as ambiguous.";
+  if (decision.useLLMPlanner) {
+    return undefined;
   }
 
-  if (goalCategory === "semi-natural" && policy.plannerCostMode !== "conservative") {
-    return "Goal classified as semi-natural.";
-  }
+  return decision.fallbackRationale ?? `Kept the ${bestRuleCandidate.planner} rule plan.`;
+}
 
-  const threshold = policy.plannerCostMode === "conservative" ? 60 : policy.plannerCostMode === "balanced" ? 75 : 85;
-  if (regexCandidate.qualitySummary.score < threshold || regexCandidate.qualitySummary.quality === "low") {
-    return `Regex quality score ${regexCandidate.qualitySummary.score} is below threshold.`;
-  }
-
-  return undefined;
+function forcedRuleDecision(planner: "template" | "regex", reason: string): EscalationPolicyDecision {
+  return {
+    useRulePlanner: true,
+    useLLMPlanner: false,
+    useRuleReplanner: false,
+    useLLMReplanner: false,
+    useRuleDiagnoser: false,
+    useLLMDiagnoser: false,
+    fallbackToRules: true,
+    abortEarly: false,
+    rationale: [reason],
+    fallbackRationale: reason,
+    llmUsageRationale: undefined
+  };
 }

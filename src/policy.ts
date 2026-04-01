@@ -1,20 +1,25 @@
-import { AgentPolicy } from "./types";
+import { AgentPolicy, EscalationPolicyMode } from "./types";
 
 export interface PolicyOverrides extends Partial<AgentPolicy> {}
 
 export function resolvePolicy(overrides: PolicyOverrides = {}): AgentPolicy {
+  const mode = overrides.mode ?? readCostMode("AGENT_POLICY_MODE", "balanced");
+
   return {
-    plannerCostMode: overrides.plannerCostMode ?? readCostMode("AGENT_PLANNER_COST_MODE", "balanced"),
-    replannerCostMode: overrides.replannerCostMode ?? readCostMode("AGENT_REPLANNER_COST_MODE", "balanced"),
-    preferRuleSystemsOnCheapGoals: overrides.preferRuleSystemsOnCheapGoals ?? readBoolean("AGENT_PREFER_RULES_ON_CHEAP_GOALS", true),
-    allowLLMReplannerForSimpleFailures: overrides.allowLLMReplannerForSimpleFailures ?? readBoolean("AGENT_ALLOW_LLM_REPLANNER_FOR_SIMPLE_FAILURES", false)
+    mode,
+    plannerCostMode: overrides.plannerCostMode ?? readCostMode("AGENT_PLANNER_COST_MODE", mode),
+    replannerCostMode: overrides.replannerCostMode ?? readCostMode("AGENT_REPLANNER_COST_MODE", mode),
+    preferRuleSystemsOnCheapGoals:
+      overrides.preferRuleSystemsOnCheapGoals ?? readBoolean("AGENT_PREFER_RULES_ON_CHEAP_GOALS", true),
+    allowLLMReplannerForSimpleFailures:
+      overrides.allowLLMReplannerForSimpleFailures ?? readBoolean("AGENT_ALLOW_LLM_REPLANNER_FOR_SIMPLE_FAILURES", false)
   };
 }
 
 function readCostMode(
   envName: string,
-  fallback: AgentPolicy["plannerCostMode"]
-): AgentPolicy["plannerCostMode"] {
+  fallback: EscalationPolicyMode
+): EscalationPolicyMode {
   const value = process.env[envName]?.trim();
   if (value === "conservative" || value === "balanced" || value === "aggressive") {
     return value;

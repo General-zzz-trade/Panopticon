@@ -13,6 +13,21 @@ export type AgentAction =
   | "screenshot"
   | "stop_app";
 
+export type GoalCategory = "explicit" | "semi-natural" | "ambiguous";
+export type EscalationStage = "planner" | "replanner" | "diagnoser";
+export type EscalationPolicyMode = "conservative" | "balanced" | "aggressive";
+export type FailureType =
+  | "none"
+  | "selector_mismatch"
+  | "timeout"
+  | "empty_response"
+  | "invalid_json"
+  | "low_quality_output"
+  | "assert_mismatch"
+  | "provider_unavailable"
+  | "repeated_failure"
+  | "unknown";
+
 export interface AgentTask {
   id: string;
   type: AgentAction;
@@ -75,13 +90,62 @@ export interface PlannerCandidateTrace {
   fallbackReason?: string;
 }
 
+export interface ProviderCapabilityHealth {
+  configured: boolean;
+  healthy: boolean;
+  rationale: string;
+}
+
+export interface ProviderHealth {
+  planner: ProviderCapabilityHealth;
+  replanner: ProviderCapabilityHealth;
+  diagnoser: ProviderCapabilityHealth;
+}
+
+export interface FailurePatternSummary {
+  taskType: AgentAction;
+  count: number;
+}
+
+export interface EscalationPolicyDecision {
+  useRulePlanner: boolean;
+  useLLMPlanner: boolean;
+  useRuleReplanner: boolean;
+  useLLMReplanner: boolean;
+  useRuleDiagnoser: boolean;
+  useLLMDiagnoser: boolean;
+  fallbackToRules: boolean;
+  abortEarly: boolean;
+  rationale: string[];
+  llmUsageRationale?: string;
+  fallbackRationale?: string;
+}
+
+export interface EscalationDecisionTrace {
+  stage: EscalationStage;
+  taskId?: string;
+  goalCategory: GoalCategory;
+  plannerQuality: PlanQualitySummary["quality"] | "unknown";
+  currentFailureType: FailureType;
+  failurePatterns: FailurePatternSummary[];
+  policyMode: EscalationPolicyMode;
+  providerHealth: ProviderHealth;
+  decision: EscalationPolicyDecision;
+  timestamp: string;
+}
+
 export interface PlannerDecisionTrace {
   candidatePlanners: PlannerCandidateTrace[];
   chosenPlanner: "template" | "regex" | "llm" | "none";
   qualitySummary: PlanQualitySummary;
   qualityScore: number;
+  goalCategory: GoalCategory;
+  policyMode: EscalationPolicyMode;
   triggerReason?: string;
   fallbackReason?: string;
+  llmUsageRationale?: string;
+  fallbackRationale?: string;
+  escalationDecision: EscalationDecisionTrace;
   llmInvocations: number;
   llmUsageCap: number;
   timeoutCount: number;
@@ -94,19 +158,24 @@ export interface PlannerTieBreakerPolicy {
 }
 
 export interface AgentPolicy {
-  plannerCostMode: "conservative" | "balanced" | "aggressive";
-  replannerCostMode: "conservative" | "balanced" | "aggressive";
+  mode: EscalationPolicyMode;
+  plannerCostMode: EscalationPolicyMode;
+  replannerCostMode: EscalationPolicyMode;
   preferRuleSystemsOnCheapGoals: boolean;
   allowLLMReplannerForSimpleFailures: boolean;
 }
 
 export interface UsageLedger {
-  plannerCalls: number;
-  replannerCalls: number;
-  diagnoserCalls: number;
+  rulePlannerAttempts: number;
+  llmPlannerCalls: number;
+  ruleReplannerAttempts: number;
+  llmReplannerCalls: number;
+  llmDiagnoserCalls: number;
   plannerTimeouts: number;
   replannerTimeouts: number;
-  fallbackCounts: number;
+  diagnoserTimeouts: number;
+  plannerFallbacks: number;
+  replannerFallbacks: number;
   totalLLMInteractions: number;
 }
 
@@ -131,6 +200,7 @@ export interface RunContext {
   plannerTieBreakerPolicy?: PlannerTieBreakerPolicy;
   policy?: AgentPolicy;
   usageLedger?: UsageLedger;
+  escalationDecisions: EscalationDecisionTrace[];
   goal: string;
   tasks: AgentTask[];
   artifacts: RunArtifact[];
