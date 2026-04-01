@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { listRuns, getRun } from "../../db/runs-repo";
 import { getRunStatus } from "../run-store";
 import { submitJob, getQueue } from "../../worker/pool";
+import { sanitizeGoal } from "../sanitize";
 
 export async function runsRoutes(app: FastifyInstance): Promise<void> {
   // POST /runs — submit a goal (non-blocking, returns 202 immediately)
@@ -17,7 +18,9 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
       }
     }
   }, async (request, reply) => {
-    const { goal, options = {} } = request.body;
+    const { goal: rawGoal, options = {} } = request.body;
+    const goal = sanitizeGoal(rawGoal);
+    if (!goal) return reply.code(400).send({ error: "goal is empty after sanitization" });
     const runId = `run-${new Date().toISOString().replace(/[:.]/g, "-")}-${Math.random().toString(36).slice(2, 8)}`;
     submitJob(runId, goal, options);
     return reply.code(202).send({ runId, status: "pending" });

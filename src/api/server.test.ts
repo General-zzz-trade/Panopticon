@@ -6,6 +6,8 @@ import type { FastifyInstance } from "fastify";
 let app: FastifyInstance;
 
 before(async () => {
+  // Disable auth for tests
+  process.env.AGENT_API_AUTH = "false";
   app = await buildServer();
   await app.ready();
 });
@@ -58,4 +60,24 @@ test("POST /api/v1/runs returns 202 with runId and pending status", async () => 
   const body = JSON.parse(res.body);
   assert.ok(body.runId, "should have runId");
   assert.equal(body.status, "pending");
+});
+
+test("GET /queue/stats returns concurrency info", async () => {
+  const res = await app.inject({ method: "GET", url: "/api/v1/queue/stats" });
+  assert.equal(res.statusCode, 200);
+  const body = JSON.parse(res.body);
+  assert.ok(typeof body.concurrency === "number");
+  assert.ok(typeof body.running === "number");
+  assert.ok(typeof body.pending === "number");
+});
+
+test("POST /api/v1/keys creates a key (auth bypass mode)", async () => {
+  const res = await app.inject({
+    method: "POST", url: "/api/v1/keys",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "test-key" })
+  });
+  assert.equal(res.statusCode, 201);
+  const body = JSON.parse(res.body);
+  assert.ok(body.key.startsWith("ak_"), "key should start with ak_");
 });
