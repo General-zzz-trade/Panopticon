@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { join } from "node:path";
 import { mkdirSync } from "node:fs";
 import { CREATE_TABLES } from "./schema";
+import { CREATE_KNOWLEDGE_TABLE } from "../knowledge/store";
 
 let _db: Database.Database | null = null;
 
@@ -16,6 +17,7 @@ export function getDb(): Database.Database {
   _db.pragma("journal_mode = WAL");
   _db.pragma("foreign_keys = ON");
   _db.exec(CREATE_TABLES);
+  _db.exec(CREATE_KNOWLEDGE_TABLE);
   runMigrations(_db);
 
   return _db;

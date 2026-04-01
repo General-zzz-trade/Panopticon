@@ -1,5 +1,6 @@
 import { closeBrowserSession } from "../browser";
 import { executeTask } from "../executor";
+import { extractKnowledgeFromRun } from "../knowledge/extractor";
 import { findFailurePatterns, loadRecentRuns, saveRun } from "../memory";
 import { calculateRunMetrics } from "../metrics";
 import { resolvePolicy } from "../policy";
@@ -146,6 +147,7 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
     context.metrics = calculateRunMetrics(context);
     context.reflection = await reflectOnRun(context);
     finalizeUsageLedger(context);
+    extractKnowledgeFromRun(context);
     await saveReflectionToFile(context.reflection);
     await saveRun(context);
   }

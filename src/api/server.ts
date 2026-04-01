@@ -4,6 +4,7 @@ import { runsRoutes } from "./routes/runs";
 import { authPlugin, initApiKeysTable, createApiKey } from "./plugins/auth";
 import { renderPrometheus } from "../observability/metrics-store";
 import { listPlugins } from "../plugins/registry";
+import { getKnowledgeStats } from "../knowledge/store";
 
 export async function buildServer() {
   initApiKeysTable();
@@ -21,6 +22,11 @@ export async function buildServer() {
   // List registered plugins
   app.get("/api/v1/plugins", async (_req, reply) => {
     return reply.send({ plugins: listPlugins() });
+  });
+
+  // Knowledge base stats
+  app.get("/api/v1/knowledge/stats", async (_req, reply) => {
+    return reply.send(getKnowledgeStats());
   });
 
   // Prometheus metrics endpoint — bypass auth (scrapers don't use API keys)
@@ -60,6 +66,7 @@ async function main() {
   console.log(`  GET  /api/v1/runs/:id/artifacts - artifacts`);
   console.log(`  GET  /health             - health check`);
   console.log(`  POST /api/v1/keys        - create API key`);
+  console.log(`  GET  /api/v1/knowledge/stats     - knowledge base stats`);
   console.log(`  Set AGENT_API_AUTH=false to disable auth (dev mode)`);
 }
 
