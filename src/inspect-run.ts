@@ -19,6 +19,19 @@ async function main(): Promise<void> {
   console.log(`Policy mode: ${run.policy?.mode ?? "unknown"}`);
   console.log(`Planner used: ${run.plannerUsed ?? "unknown"}`);
   console.log(`Termination: ${run.terminationReason ?? "unknown"}`);
+  console.log(`Policy mode: planner=${run.policy?.plannerCostMode ?? "n/a"}, replanner=${run.policy?.replannerCostMode ?? "n/a"}`);
+  console.log("");
+
+  console.log("Escalation decisions:");
+  console.log(JSON.stringify(run.escalationTrace ?? [], null, 2));
+  console.log("");
+
+  console.log("LLM usage rationale:");
+  console.log((run.escalationTrace ?? []).map((item) => `[${item.stage}] ${item.llmUsageRationale}`).join("\n") || "none");
+  console.log("");
+
+  console.log("Fallback rationale:");
+  console.log((run.escalationTrace ?? []).map((item) => `[${item.stage}] ${item.fallbackRationale}`).join("\n") || "none");
   console.log("");
 
   console.log("Planner decision trace:");
@@ -98,29 +111,6 @@ async function main(): Promise<void> {
 
   console.log("Metrics:");
   console.log(JSON.stringify(run.metrics ?? null, null, 2));
-  console.log("");
-
-  console.log("Replan chain:");
-  console.log(
-    JSON.stringify(
-      run.tasks
-        .filter((task) => task.replanDepth > 0 || task.errorHistory?.length)
-        .map((task) => ({
-          id: task.id,
-          type: task.type,
-          status: task.status,
-          replanDepth: task.replanDepth,
-          retries: task.retries,
-          errorHistory: task.errorHistory ?? []
-        })),
-      null,
-      2
-    )
-  );
-  console.log("");
-
-  console.log("Artifacts summary:");
-  console.log(JSON.stringify(run.artifacts ?? [], null, 2));
   console.log("");
 
   console.log("Usage ledger:");
