@@ -19,6 +19,30 @@ export interface LLMMessage {
   content: string;
 }
 
+export interface LLMCallResult {
+  content: string;
+  usage: { inputTokens: number; outputTokens: number };
+  latencyMs: number;
+}
+
+export function parseOpenAIUsage(usage: unknown): { inputTokens: number; outputTokens: number } {
+  if (!usage || typeof usage !== "object") return { inputTokens: 0, outputTokens: 0 };
+  const u = usage as Record<string, unknown>;
+  return {
+    inputTokens: Number(u.prompt_tokens ?? 0),
+    outputTokens: Number(u.completion_tokens ?? 0)
+  };
+}
+
+export function parseAnthropicUsage(usage: unknown): { inputTokens: number; outputTokens: number } {
+  if (!usage || typeof usage !== "object") return { inputTokens: 0, outputTokens: 0 };
+  const u = usage as Record<string, unknown>;
+  return {
+    inputTokens: Number(u.input_tokens ?? 0),
+    outputTokens: Number(u.output_tokens ?? 0)
+  };
+}
+
 /**
  * Reads a provider config from environment variables using the given prefix.
  * e.g. prefix "LLM_PLANNER" reads LLM_PLANNER_PROVIDER, LLM_PLANNER_MODEL, etc.
@@ -29,14 +53,19 @@ export function readProviderConfig(
 ): LLMProviderConfig {
   const provider = process.env[`${envPrefix}_PROVIDER`]?.trim() ?? "";
   const defaultModel = provider === "anthropic" ? "claude-sonnet-4-20250514" : (defaults.model || "gpt-4.1-mini");
+  const model = process.env[`${envPrefix}_MODEL`]?.trim() || defaultModel;
+  const baseUrl = process.env[`${envPrefix}_BASE_URL`]?.trim();
+  const explicitTemperature = process.env[`${envPrefix}_TEMPERATURE`];
   return {
     provider,
-    model: process.env[`${envPrefix}_MODEL`]?.trim() || defaultModel,
+    model,
     timeoutMs: Number(process.env[`${envPrefix}_TIMEOUT_MS`] ?? 8000),
     maxTokens: Number(process.env[`${envPrefix}_MAX_TOKENS`] ?? defaults.maxTokens ?? 600),
-    temperature: Number(process.env[`${envPrefix}_TEMPERATURE`] ?? defaults.temperature ?? 0.1),
+    temperature: explicitTemperature !== undefined
+      ? Number(explicitTemperature)
+      : getDefaultTemperature(provider, model, baseUrl, defaults.temperature),
     apiKey: process.env[`${envPrefix}_API_KEY`]?.trim(),
-    baseUrl: process.env[`${envPrefix}_BASE_URL`]?.trim()
+    baseUrl
   };
 }
 
@@ -49,12 +78,14 @@ export async function callOpenAICompatible(
   config: LLMProviderConfig,
   messages: LLMMessage[],
   callerName = "LLM"
-): Promise<string> {
+): Promise<LLMCallResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
 
   try {
-    const response = await fetch(config.baseUrl!, {
+    const start = Date.now();
+    const url = normalizeOpenAICompatibleBaseUrl(config.baseUrl);
+    const response = await fetch(url, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -83,7 +114,8 @@ export async function callOpenAICompatible(
       throw new Error(`${callerName} returned empty content.`);
     }
 
-    return content;
+    const usage = parseOpenAIUsage((body as Record<string, unknown>).usage);
+    return { content, usage, latencyMs: Date.now() - start };
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw new Error(`${callerName} timed out after ${config.timeoutMs}ms.`);
@@ -109,12 +141,13 @@ export async function callAnthropic(
   config: LLMProviderConfig,
   messages: LLMMessage[],
   callerName = "LLM"
-): Promise<string> {
+): Promise<LLMCallResult> {
   const baseUrl = config.baseUrl || "https://api.anthropic.com";
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
 
   try {
+    const start = Date.now();
     const systemParts = messages.filter((m) => m.role === "system").map((m) => m.content);
     const userMessages = messages.filter((m) => m.role !== "system");
 
@@ -153,7 +186,8 @@ export async function callAnthropic(
       throw new Error(`${callerName} returned empty content.`);
     }
 
-    return content;
+    const usage = parseAnthropicUsage((responseBody as Record<string, unknown>).usage);
+    return { content, usage, latencyMs: Date.now() - start };
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw new Error(`${callerName} timed out after ${config.timeoutMs}ms.`);
@@ -184,4 +218,39 @@ export function unwrapTasksPayload(content: string): string {
   }
 
   return content;
+}
+
+function getDefaultTemperature(
+  provider: string,
+  model: string,
+  baseUrl: string | undefined,
+  fallbackTemperature = 0.1
+): number {
+  if (provider === "openai-compatible" && isMoonshotK25(model, baseUrl)) {
+    // Moonshot's kimi-k2.5 default thinking mode expects temperature 1.0.
+    return 1;
+  }
+
+  return fallbackTemperature;
+}
+
+function isMoonshotK25(model: string, baseUrl: string | undefined): boolean {
+  return /^kimi-k2\.5\b/i.test(model) && /moonshot|kimi/i.test(baseUrl ?? "");
+}
+
+function normalizeOpenAICompatibleBaseUrl(baseUrl: string | undefined): string {
+  const trimmed = (baseUrl ?? "").trim().replace(/\/+$/, "");
+  if (!trimmed) {
+    throw new Error("OpenAI-compatible base URL is required.");
+  }
+
+  if (/\/chat\/completions$/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (/\/v\d+$/i.test(trimmed)) {
+    return `${trimmed}/chat/completions`;
+  }
+
+  return `${trimmed}/v1/chat/completions`;
 }
