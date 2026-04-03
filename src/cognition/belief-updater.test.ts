@@ -121,3 +121,56 @@ test("empty hypotheses and experiments returns empty arrays", () => {
   assert.equal(result.updatedHypotheses.length, 0);
   assert.equal(result.beliefUpdates.length, 0);
 });
+
+test("selector probe experiment has higher weight than assertion overlap", () => {
+  const selectorResult = applyBeliefUpdates({
+    runId: "run-test",
+    hypotheses: [makeHypothesis({ id: "hyp-sel", confidence: 0.5 })],
+    experimentResults: [makeExperiment({
+      hypothesisId: "hyp-sel",
+      experiment: "check selector presence in DOM",
+      confidenceDelta: 0.2
+    })]
+  });
+
+  const assertResult = applyBeliefUpdates({
+    runId: "run-test",
+    hypotheses: [makeHypothesis({ id: "hyp-assert", confidence: 0.5 })],
+    experimentResults: [makeExperiment({
+      hypothesisId: "hyp-assert",
+      experiment: "compare expected assertion text with visible text",
+      confidenceDelta: 0.2
+    })]
+  });
+
+  const selectorDelta = selectorResult.updatedHypotheses[0].confidence - 0.5;
+  const assertDelta = assertResult.updatedHypotheses[0].confidence - 0.5;
+  assert.ok(selectorDelta > assertDelta,
+    `Selector delta ${selectorDelta} should be > assertion delta ${assertDelta}`);
+});
+
+test("unknown experiment type uses default weight", () => {
+  const result = applyBeliefUpdates({
+    runId: "run-test",
+    hypotheses: [makeHypothesis({ confidence: 0.5 })],
+    experimentResults: [makeExperiment({
+      experiment: "some new experiment type",
+      confidenceDelta: 0.2
+    })]
+  });
+  // Default weight 0.75 → effective delta = 0.2 * 0.75 = 0.15
+  assert.ok(Math.abs(result.updatedHypotheses[0].confidence - 0.65) < 0.01);
+});
+
+test("readiness probe has medium weight", () => {
+  const result = applyBeliefUpdates({
+    runId: "run-test",
+    hypotheses: [makeHypothesis({ confidence: 0.5 })],
+    experimentResults: [makeExperiment({
+      experiment: "wait briefly and inspect readiness signals",
+      confidenceDelta: 0.2
+    })]
+  });
+  // Readiness weight 0.8 → effective delta = 0.2 * 0.8 = 0.16
+  assert.ok(Math.abs(result.updatedHypotheses[0].confidence - 0.66) < 0.01);
+});
