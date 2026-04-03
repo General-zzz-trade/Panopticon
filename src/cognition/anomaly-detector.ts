@@ -49,6 +49,29 @@ export function detectAnomalies(
   // 5. Check repeated failures
   checkRepeatedFailures(task, context, anomalies);
 
+  // Scene-based anomaly: detect error pages and unexpected page types
+  if (afterObs.sceneDescription) {
+    const scene = afterObs.sceneDescription;
+    if (scene.pageType === "error") {
+      anomalies.push({
+        type: "error_signal",
+        description: `Scene analysis detected an error page (confidence: ${scene.confidence.toFixed(2)})`,
+        severity: "high",
+        evidence: [`sceneDescription.pageType=error`],
+        suggestion: "Check if the previous action caused a server error or navigation to a 404 page"
+      });
+    }
+    if (scene.pageType === "loading" && task.type !== "wait" && task.type !== "open_page") {
+      anomalies.push({
+        type: "unexpected_state",
+        description: `Scene analysis shows page is still loading after ${task.type} action`,
+        severity: "medium",
+        evidence: [`sceneDescription.pageType=loading`],
+        suggestion: "Consider adding a wait before the next action"
+      });
+    }
+  }
+
   const overallRisk = computeOverallRisk(anomalies);
   const summary = anomalies.length === 0
     ? "No anomalies detected."

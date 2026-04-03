@@ -56,10 +56,20 @@ test("wait_for_server passes when no browser-lost anomaly", async () => {
   assert.equal(result.passed, true);
 });
 
-test("wait_for_server fails when no browser page anomaly", async () => {
+test("wait_for_server passes even without browser page (browser not required)", async () => {
   const ctx = makeContext();
   const task = makeTask({ type: "wait_for_server" });
   const obs = makeObservation({ anomalies: ["No browser page attached"] });
+  const result = await verifyStateResult(ctx, task, obs);
+  // wait_for_server only checks HTTP availability, not browser state
+  assert.equal(result.passed, true);
+});
+
+test("wait_for_server fails when task has error", async () => {
+  const ctx = makeContext();
+  const task = makeTask({ type: "wait_for_server" });
+  task.error = "Server did not become available within 30000ms";
+  const obs = makeObservation();
   const result = await verifyStateResult(ctx, task, obs);
   assert.equal(result.passed, false);
 });

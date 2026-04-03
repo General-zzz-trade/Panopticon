@@ -71,6 +71,17 @@ export function getSelectorsForDomain(domain: string): SelectorMapEntry[] {
   return rows.map(r => JSON.parse(r.value_json) as SelectorMapEntry);
 }
 
+/**
+ * Get selectors across all domains for a given description.
+ * Returns selectors with highest confidence regardless of domain.
+ */
+export function getSelectorsAcrossDomains(description: string): SelectorMapEntry[] {
+  const rows = getDb().prepare(
+    "SELECT value_json FROM knowledge WHERE type='selector_map' AND key LIKE ? ORDER BY confidence DESC LIMIT 10"
+  ).all(`${description}::%`) as { value_json: string }[];
+  return rows.map(r => JSON.parse(r.value_json) as SelectorMapEntry);
+}
+
 // ── Failure Lessons ───────────────────────────────────────────────────────────
 
 export function upsertLesson(entry: FailureLessonEntry): void {
@@ -95,6 +106,22 @@ export function upsertLesson(entry: FailureLessonEntry): void {
   }
 }
 
+/**
+ * Retrieve lessons across ALL domains, abstracted to task-type level.
+ * Used when domain-specific knowledge is insufficient.
+ */
+export function getCrossDomainLessons(taskType: string, excludeDomain?: string): FailureLessonEntry[] {
+  const db = getDb();
+  const rows = excludeDomain
+    ? db.prepare(
+        "SELECT value_json FROM knowledge WHERE type='failure_lesson' AND key LIKE ? AND domain != ? ORDER BY confidence DESC LIMIT 10"
+      ).all(`${taskType}::%`, excludeDomain)
+    : db.prepare(
+        "SELECT value_json FROM knowledge WHERE type='failure_lesson' AND key LIKE ? ORDER BY confidence DESC LIMIT 10"
+      ).all(`${taskType}::%`);
+  return (rows as { value_json: string }[]).map(r => JSON.parse(r.value_json) as FailureLessonEntry);
+}
+
 export function getLessonsForTaskType(taskType: string, domain?: string): FailureLessonEntry[] {
   const db = getDb();
   const rows = domain
@@ -104,7 +131,23 @@ export function getLessonsForTaskType(taskType: string, domain?: string): Failur
     : db.prepare(
         "SELECT value_json FROM knowledge WHERE type='failure_lesson' AND key LIKE ? ORDER BY confidence DESC LIMIT 20"
       ).all(`${taskType}::%`);
-  return (rows as { value_json: string }[]).map(r => JSON.parse(r.value_json) as FailureLessonEntry);
+  const lessons = (rows as { value_json: string }[]).map(r => JSON.parse(r.value_json) as FailureLessonEntry);
+
+  // Cross-domain fallback: if domain-specific lessons are scarce, include cross-domain patterns
+  if (domain && lessons.length < 3) {
+    const crossDomain = getCrossDomainLessons(taskType, domain);
+    // Add cross-domain lessons not already present (by recovery strategy)
+    const existingRecoveries = new Set(lessons.map(l => l.recovery));
+    for (const lesson of crossDomain) {
+      if (!existingRecoveries.has(lesson.recovery)) {
+        lessons.push(lesson);
+        existingRecoveries.add(lesson.recovery);
+      }
+      if (lessons.length >= 10) break;
+    }
+  }
+
+  return lessons;
 }
 
 export function retrieveRecoveryPriors(
@@ -218,4 +261,40 @@ export function getKnowledgeStats(): { selectors: number; lessons: number; templ
     lessons: count("failure_lesson"),
     templates: count("task_template")
   };
+}
+
+/**
+ * Remove low-confidence knowledge entries that haven't been used recently.
+ * Returns the number of pruned entries.
+ */
+export function pruneKnowledge(minConfidence: number = 0.2, maxAgeDays: number = 60): number {
+  const db = getDb();
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - maxAgeDays);
+  const cutoffStr = cutoff.toISOString();
+
+  const result = db.prepare(
+    "DELETE FROM knowledge WHERE confidence < ? AND updated_at < ? AND use_count < 3"
+  ).run(minConfidence, cutoffStr);
+
+  return result.changes ?? 0;
+}
+
+/**
+ * Enforce a maximum number of entries per type.
+ * Keeps the highest-confidence entries.
+ */
+export function enforceKnowledgeCapacity(maxPerType: number = 200): number {
+  const db = getDb();
+  const types = ["selector_map", "failure_lesson", "task_template"];
+  let pruned = 0;
+
+  for (const type of types) {
+    const result = db.prepare(
+      "DELETE FROM knowledge WHERE type = ? AND id NOT IN (SELECT id FROM knowledge WHERE type = ? ORDER BY confidence DESC, use_count DESC LIMIT ?)"
+    ).run(type, type, maxPerType);
+    pruned += result.changes ?? 0;
+  }
+
+  return pruned;
 }

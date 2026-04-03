@@ -52,10 +52,38 @@ export function applyPlanningPriors(goal: string, blueprints: TaskBlueprint[]): 
         continue;
       }
 
-      next.splice(index, 0, { type: "wait", payload: { durationMs: assertWaitMs } });
+      next.splice(index, 0, { type: "wait", payload: { ms: assertWaitMs, durationMs: assertWaitMs } });
       index += 1;
       notes.push(`planning prior inserted wait ${assertWaitMs}ms before assert_text`);
       matchedPriors.push(...toPriorHits(assertPrior.taskType, assertPrior.lessons));
+    }
+  }
+
+  // Auto-switch tasks with high-failure selectors to visual variants
+  for (let i = 0; i < next.length; i++) {
+    const task = next[i];
+    const selector = task.payload?.selector as string | undefined;
+    if (!selector) continue;
+    if (task.type !== "click" && task.type !== "type" && task.type !== "select") continue;
+
+    // Check if this selector has failure history across domains
+    try {
+      const { getSelectorsAcrossDomains } = require("../knowledge/store");
+      const selectorHistory = getSelectorsAcrossDomains(selector);
+      const failedEntries = selectorHistory.filter((s: any) => s.failureCount > s.successCount);
+
+      if (failedEntries.length > 0) {
+        const visualType = task.type === "select" ? "visual_click" : `visual_${task.type}`;
+        const description = (task.payload?.description as string | undefined) ?? selector;
+        next[i] = {
+          ...task,
+          type: visualType as any,
+          payload: { ...task.payload, description }
+        };
+        notes.push(`auto-switched ${task.type} "${selector}" to ${visualType} (selector has ${failedEntries.length} failure record(s))`);
+      }
+    } catch {
+      // Knowledge store may not be available
     }
   }
 

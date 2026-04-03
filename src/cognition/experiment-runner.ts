@@ -116,15 +116,47 @@ async function runSelectorExperiment(
 
   try {
     const count = await page.locator(selector).count();
+
+    if (count === 0) {
+      // Creative recovery: try alternative selectors
+      let alternatives: Array<{ selector: string; strategy: string; confidence: number; description: string }> = [];
+      try {
+        const { findAlternativeSelectors } = await import("./selector-recovery");
+        alternatives = await findAlternativeSelectors(context.browserSession!, selector, task.type);
+      } catch { /* selector recovery is optional */ }
+
+      const stateHints = alternatives.length > 0
+        ? alternatives.slice(0, 3).map(a => `alternative_selector:${a.selector}:${a.strategy}`)
+        : [`experiment:selector_count:0`];
+
+      return createResult(
+        context.runId,
+        task.id,
+        hypothesis.id,
+        "check selector presence in DOM",
+        "probe selector count in DOM and search alternatives",
+        "support",
+        [
+          `selector=${selector}`,
+          `count=0`,
+          `alternatives_found=${alternatives.length}`,
+          ...alternatives.slice(0, 3).map(a => `alt:${a.strategy}=${a.selector}`)
+        ],
+        0.18,
+        undefined,
+        stateHints
+      );
+    }
+
     return createResult(
       context.runId,
       task.id,
       hypothesis.id,
       "check selector presence in DOM",
       "probe selector count in DOM",
-      count === 0 ? "support" : "refute",
+      "refute",
       [`selector=${selector}`, `count=${count}`],
-      count === 0 ? 0.18 : -0.16,
+      -0.16,
       undefined,
       [`experiment:selector_count:${count}`]
     );

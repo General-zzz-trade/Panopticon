@@ -69,6 +69,75 @@ export function getAllEpisodesWithEmbeddings(): Episode[] {
   return (rows as any[]).map(mapRow);
 }
 
+/**
+ * Remove episodes older than maxAgeDays, keeping at most maxCount total.
+ * Returns the number of deleted episodes.
+ */
+export function pruneEpisodes(maxAgeDays: number = 90, maxCount: number = 500): number {
+  const db = getDb();
+
+  // Delete old episodes
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - maxAgeDays);
+  const cutoffStr = cutoff.toISOString();
+
+  const aged = db.prepare(
+    "DELETE FROM episodes WHERE created_at < ? AND outcome != 'success'"
+  ).run(cutoffStr);
+
+  // Enforce max count — keep most recent
+  const overflow = db.prepare(
+    "DELETE FROM episodes WHERE id NOT IN (SELECT id FROM episodes ORDER BY created_at DESC LIMIT ?)"
+  ).run(maxCount);
+
+  return (aged.changes ?? 0) + (overflow.changes ?? 0);
+}
+
+/**
+ * Merge similar episodes for the same domain+outcome into a single summary.
+ * Keeps the most recent and deletes older duplicates.
+ */
+export function consolidateEpisodes(domain: string): number {
+  const db = getDb();
+
+  // Find groups with same domain and outcome that have > 3 entries
+  const groups = db.prepare(
+    "SELECT domain, outcome, COUNT(*) as cnt FROM episodes WHERE domain = ? GROUP BY domain, outcome HAVING cnt > 3"
+  ).all(domain) as Array<{ domain: string; outcome: string; cnt: number }>;
+
+  let consolidated = 0;
+  for (const group of groups) {
+    // Keep the 3 most recent, delete the rest
+    const toDelete = db.prepare(
+      "DELETE FROM episodes WHERE domain = ? AND outcome = ? AND id NOT IN (SELECT id FROM episodes WHERE domain = ? AND outcome = ? ORDER BY created_at DESC LIMIT 3)"
+    ).run(group.domain, group.outcome, group.domain, group.outcome);
+    consolidated += toDelete.changes ?? 0;
+  }
+
+  return consolidated;
+}
+
+/**
+ * Get episode store stats.
+ */
+export function getEpisodeStats(): { total: number; byOutcome: Record<string, number>; oldestDate: string | null } {
+  const db = getDb();
+  const total = (db.prepare("SELECT COUNT(*) as n FROM episodes").get() as { n: number }).n;
+
+  const outcomes = db.prepare(
+    "SELECT outcome, COUNT(*) as n FROM episodes GROUP BY outcome"
+  ).all() as Array<{ outcome: string; n: number }>;
+
+  const byOutcome: Record<string, number> = {};
+  for (const row of outcomes) byOutcome[row.outcome] = row.n;
+
+  const oldest = db.prepare(
+    "SELECT MIN(created_at) as d FROM episodes"
+  ).get() as { d: string | null };
+
+  return { total, byOutcome, oldestDate: oldest.d };
+}
+
 function mapRow(row: any): Episode {
   return {
     id: row.id,

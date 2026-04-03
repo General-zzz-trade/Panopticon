@@ -31,7 +31,7 @@ function makeTask(id: string, dependsOn?: string[]): AgentTask {
     retries: 0,
     attempts: 0,
     replanDepth: 0,
-    payload: { durationMs: 1 },
+    payload: { ms: 1, durationMs: 1 },
     dependsOn: dependsOn ?? []
   } as unknown as AgentTask;
 }

@@ -35,6 +35,12 @@ export interface AgentObservation {
   visibleText?: string[];
   actionableElements?: ActionableElementObservation[];
   appStateGuess?: string;
+  sceneDescription?: {
+    pageType: string;
+    keyElements: Array<{ type: string; label: string; state?: string }>;
+    stateIndicators: string[];
+    confidence: number;
+  };
   anomalies: string[];
   confidence: number;
 }
@@ -141,6 +147,12 @@ export interface ObservationInput {
   visibleText?: string[];
   actionableElements?: ActionableElementObservation[];
   appStateGuess?: string;
+  sceneDescription?: {
+    pageType: string;
+    keyElements: Array<{ type: string; label: string; state?: string }>;
+    stateIndicators: string[];
+    confidence: number;
+  };
   anomalies?: string[];
   confidence?: number;
 }

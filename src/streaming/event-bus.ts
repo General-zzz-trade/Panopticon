@@ -8,7 +8,8 @@ export type ExecutionEventType =
   | "replan"
   | "log"
   | "run_complete"
-  | "approval_required";
+  | "approval_required"
+  | "help_requested";
 
 export interface ExecutionEvent {
   type: ExecutionEventType;

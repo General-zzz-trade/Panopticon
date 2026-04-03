@@ -11,10 +11,12 @@ export async function verifyStateResult(
   let rationale = "State remains internally consistent.";
 
   if (task.type === "wait_for_server") {
-    passed = !observation.anomalies.some((item) => /no browser page/i.test(item));
+    // wait_for_server does not require a browser page — it only checks HTTP availability.
+    // The "no browser page" anomaly is expected before open_page and should not fail this task.
+    passed = !task.error;
     rationale = passed
-      ? "Server wait completed and the runtime can still observe the environment."
-      : "Server wait completed but no observable environment is attached.";
+      ? "Server wait completed — HTTP endpoint is reachable."
+      : `Server wait failed: ${task.error}`;
   } else if (task.type === "start_app") {
     passed = Boolean(context.appProcess);
     rationale = passed

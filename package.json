@@ -9,6 +9,7 @@
     "start": "node dist/cli.js",
     "dev": "node --import tsx src/cli.ts",
     "sample:app": "node --import tsx src/sample-app/server.ts",
+    "benchmark": "node --import tsx src/benchmarks/runner.ts",
     "benchmark:planner": "node --import tsx src/planner/benchmark.ts",
     "inspect:run": "node --import tsx src/inspect-run.ts",
     "verify:moonshot": "node --import tsx src/verify-moonshot.ts",
@@ -26,6 +27,7 @@
     "api": "node --import tsx src/api/server.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.82.0",
     "@fastify/cors": "^11.2.0",
     "@fastify/static": "^9.0.0",
     "better-sqlite3": "^12.8.0",

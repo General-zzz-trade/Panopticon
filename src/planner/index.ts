@@ -33,6 +33,8 @@ import { TaskBlueprint } from "./task-id";
 import { validateAndMaterializeTasks } from "./validation";
 import { planFromKnowledge } from "./knowledge-template-planner";
 import { applyPlanningPriors } from "./prior-aware-planner";
+import { causalDecompose, inferGoalState, inferCurrentState } from "../decomposer/causal-decomposer";
+import { createCausalGraph, deserializeGraph, type CausalGraph } from "../world-model/causal-graph";
 
 export type PlannerMode = "auto" | "template" | "regex" | "llm";
 type ConcretePlanner = "template" | "regex" | "llm";
@@ -170,6 +172,24 @@ export async function planTasks(goal: string, options: PlanTasksOptions): Promis
         return finalizeCandidate(knowledgeCandidate, [knowledgeCandidate], undefined, llmUsageCap, 0, 0, goalCategory, policy.mode, escalationTrace);
       }
     }
+  }
+
+  // Try causal decomposer — uses learned causal graph from past runs
+  const causalResult = tryCausalPlan(trimmedGoal, options.runId);
+  if (causalResult) {
+    const decision = forcedRuleDecision("template", "Causal decomposer matched a known path from the causal graph.");
+    const escalationTrace = createEscalationDecisionTrace({
+      stage: "planner",
+      goalCategory,
+      plannerQuality: causalResult.qualitySummary.quality,
+      currentFailureType: "none",
+      failurePatterns,
+      usageLedger,
+      policyMode: policy.mode,
+      providerHealth: buildProviderHealth(undefined, llmUsageCap),
+      decision
+    });
+    return finalizeCandidate(causalResult, [causalResult], undefined, llmUsageCap, 0, 0, goalCategory, policy.mode, escalationTrace);
   }
 
   const evaluatedCandidates: PlanCandidate[] = [];
@@ -780,6 +800,64 @@ function choosePlannerFallbackReason(
   }
 
   return decision.fallbackRationale ?? `Kept the ${bestRuleCandidate.planner} rule plan.`;
+}
+
+function tryCausalPlan(
+  goal: string,
+  runId: string
+): PlanCandidate | null {
+  try {
+    const graph = loadCausalGraph();
+    if (!graph || graph.edges.size === 0) return null;
+
+    const goalState = inferGoalState(goal);
+    const currentState = inferCurrentState({});  // No observation yet at planning time
+    const result = causalDecompose(goal, currentState, goalState, graph);
+
+    if (!result.decomposed || !result.causalPath || result.causalPath.length === 0) {
+      return null;
+    }
+
+    // Convert causal path to task blueprints
+    const blueprints: TaskBlueprint[] = result.causalPath.map((edge, i) => ({
+      type: edge.action as TaskBlueprint["type"],
+      payload: {
+        selector: edge.actionDetail || undefined,
+        url: edge.action === "open_page" ? edge.actionDetail : undefined,
+        description: `Causal step ${i + 1}: ${edge.action} "${edge.actionDetail}" (confidence: ${edge.confidence.toFixed(2)})`
+      }
+    }));
+
+    const tasks = validateAndMaterializeTasks(runId, blueprints);
+    if (!tasks || tasks.length === 0) return null;
+
+    const qualitySummary = evaluateTaskSequenceQuality(goal, tasks);
+    if (qualitySummary.quality === "low") return null;
+
+    return {
+      planner: "template",
+      tasks,
+      qualitySummary,
+      valid: true,
+      triggerReason: `Causal graph path (${result.causalPath.length} steps, avg confidence: ${(result.causalPath.reduce((sum, e) => sum + e.confidence, 0) / result.causalPath.length).toFixed(2)})`,
+      timeout: false
+    };
+  } catch {
+    return null;
+  }
+}
+
+function loadCausalGraph(): CausalGraph | null {
+  try {
+    const fs = require("fs");
+    const path = require("path");
+    const graphPath = path.join(process.cwd(), "artifacts", "causal-graph.json");
+    if (!fs.existsSync(graphPath)) return null;
+    const json = fs.readFileSync(graphPath, "utf-8");
+    return deserializeGraph(json);
+  } catch {
+    return null;
+  }
 }
 
 function forcedRuleDecision(planner: "template" | "regex", reason: string): EscalationPolicyDecision {

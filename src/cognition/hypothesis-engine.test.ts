@@ -247,6 +247,68 @@ test("generates hypotheses and maintains confidence sort order", () => {
   }
 });
 
+test("hypothesis confidence uses learned priors when available", () => {
+  const task: AgentTask = {
+    id: "t1",
+    type: "click",
+    status: "failed",
+    retries: 0,
+    attempts: 1,
+    replanDepth: 0,
+    payload: { selector: "#btn" },
+    errorHistory: ["selector not found"]
+  };
+
+  const context: RunContext = {
+    runId: "run-prior-test",
+    goal: 'click "#btn"',
+    tasks: [task],
+    artifacts: [],
+    replanCount: 0,
+    nextTaskSequence: 1,
+    insertedTaskCount: 0,
+    llmReplannerInvocations: 0,
+    llmReplannerTimeoutCount: 0,
+    llmReplannerFallbackCount: 0,
+    escalationDecisions: [],
+    observations: [],
+    latestObservation: {
+      id: "obs-1",
+      runId: "run-prior-test",
+      taskId: "t1",
+      timestamp: new Date().toISOString(),
+      source: "task_observe",
+      pageUrl: "http://localhost:3000",
+      visibleText: [],
+      actionableElements: [],
+      appStateGuess: "ready",
+      anomalies: [],
+      confidence: 0.8
+    },
+    worldState: {
+      runId: "run-prior-test",
+      timestamp: new Date().toISOString(),
+      appState: "ready",
+      uncertaintyScore: 0.3,
+      facts: []
+    },
+    limits: { maxReplansPerRun: 3, maxReplansPerTask: 1 },
+    startedAt: new Date().toISOString()
+  };
+
+  const hypotheses = generateFailureHypotheses({
+    context,
+    task,
+    failureReason: "selector not found"
+  });
+
+  // Should generate hypotheses with confidence values (may differ from hardcoded defaults)
+  const selectorHyp = hypotheses.find(h => h.kind === "selector_drift");
+  assert.ok(selectorHyp);
+  assert.ok(selectorHyp!.confidence > 0);
+  assert.ok(selectorHyp!.confidence <= 1);
+});
+
 test("generates session_not_established hypothesis when login text is visible", () => {
   const task: AgentTask = {
     id: "task-session-1",

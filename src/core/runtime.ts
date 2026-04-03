@@ -1,6 +1,7 @@
 import { applyBeliefUpdates } from "../cognition/belief-updater";
 import { closeBrowserSession } from "../browser";
 import { decideNextStep } from "../cognition/executive-controller";
+import { isLLMDecisionConfigured, llmDecideNextStep } from "../cognition/llm-decision";
 import { runRecoveryExperiments } from "../cognition/experiment-runner";
 import { generateFailureHypotheses } from "../cognition/hypothesis-engine";
 import { materializeObservation, observeEnvironment } from "../cognition/observation-engine";
@@ -19,16 +20,21 @@ import { createUsageLedger, finalizeUsageLedger } from "../observability/usage-l
 import { verifyActionResult } from "../verifier/action-verifier";
 import { verifyGoalProgress } from "../verifier/goal-verifier";
 import { verifyStateResult } from "../verifier/state-verifier";
-import { AgentPolicy, PlannerTieBreakerPolicy, RunContext, RunLimits, TerminationReason } from "../types";
+import { AgentPolicy, AgentTask, PlannerTieBreakerPolicy, RunContext, RunLimits, TerminationReason } from "../types";
 import { publishEvent, closeEmitter } from "../streaming/event-bus";
 // Research module integrations
 import { createOnlineAdapterState, recordInRunFailure, suggestAdaptation, type OnlineAdapterState } from "../learning/online-adapter";
 import { detectAnomalies } from "../cognition/anomaly-detector";
-import { assessExperience } from "../cognition/meta-cognition";
+import { assessExperience, shouldRequestHelp } from "../cognition/meta-cognition";
 import { findSimilarEpisodes, formatEpisodesAsContext } from "../memory/semantic-search";
 import { saveEpisode, initEpisodesTable } from "../memory/episode-store";
 import { generateEpisodeSummary, extractDomainFromRun } from "../memory/episode-generator";
 import { computeEmbedding } from "../memory/embedding";
+import { createCausalGraph, findPath, type CausalGraph } from "../world-model/causal-graph";
+import { extractCausalTransitions } from "../world-model/extractor";
+import { inferGoalState, inferCurrentState } from "../decomposer/causal-decomposer";
+import { runReflection } from "../learning/reflection-loop";
+import { applyInsights } from "../learning/strategy-updater";
 
 export interface RunOptions {
   maxReplansPerRun?: number;
@@ -40,6 +46,12 @@ export interface RunOptions {
   tieBreakerPolicy?: Partial<PlannerTieBreakerPolicy>;
   policy?: Partial<AgentPolicy>;
   tenantId?: string;
+  /** Inject an existing browser session (for multi-turn conversations) */
+  browserSession?: RunContext["browserSession"];
+  /** Inject prior world state (for multi-turn conversations) */
+  worldState?: RunContext["worldState"];
+  /** Keep browser session alive after run (caller manages cleanup) */
+  keepBrowserAlive?: boolean;
 }
 
 export async function runGoal(goal: string, options: RunOptions = {}): Promise<RunContext> {
@@ -56,6 +68,7 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
   };
   const usageLedger = createUsageLedger();
   const onlineAdapter = createOnlineAdapterState();
+  const causalGraph = createCausalGraph();
 
   // Integration: Semantic memory — retrieve similar past episodes for planner context
   let episodeContext = "";
@@ -76,6 +89,11 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
     usageLedger
   });
 
+  // Use injected world state or create fresh
+  const initialWorldState = options.worldState
+    ? attachWorldStateRunId(options.worldState, runId)
+    : attachWorldStateRunId(createInitialWorldState(goal), runId);
+
   const context: RunContext = {
     runId,
     tenantId: options.tenantId ?? "default",
@@ -94,7 +112,8 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
     llmReplannerInvocations: 0,
     llmReplannerTimeoutCount: 0,
     llmReplannerFallbackCount: 0,
-    worldState: attachWorldStateRunId(createInitialWorldState(goal), runId),
+    browserSession: options.browserSession,
+    worldState: initialWorldState,
     worldStateHistory: [],
     observations: [],
     hypotheses: [],
@@ -171,22 +190,83 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
           });
         }
 
+        // Integration: Causal graph — record successful state transition
+        try {
+          extractCausalTransitions(
+            { ...context, tasks: [task], observations: [beforeObservation, afterObservation] } as RunContext,
+            causalGraph
+          );
+        } catch {
+          // Causal graph update is optional
+        }
+
         // Integration: Meta-cognition — adjust confidence based on experience
         const experienceAssessment = assessExperience(context, task);
 
-        const rawDecision = decideNextStep({
-          task,
-          actionVerification,
-          stateVerification,
-          goalVerification,
-          replanCount: context.replanCount,
-          maxReplans: context.limits.maxReplansPerRun
-        });
+        const rawDecision = isLLMDecisionConfigured()
+          ? await llmDecideNextStep({
+              task,
+              goal,
+              actionVerification,
+              stateVerification,
+              goalVerification,
+              replanCount: context.replanCount,
+              maxReplans: context.limits.maxReplansPerRun,
+              visibleText: afterObservation.visibleText,
+              pageUrl: afterObservation.pageUrl,
+              completedTasks: context.tasks.filter(t => t.status === "done").map(t => `${t.type}(${t.id})`),
+              remainingTasks: context.tasks.filter(t => t.status === "pending").map(t => `${t.type}(${t.id})`),
+              failureHistory: context.tasks.filter(t => t.error).map(t => `${t.type}: ${t.error}`)
+            })
+          : decideNextStep({
+              task,
+              actionVerification,
+              stateVerification,
+              goalVerification,
+              replanCount: context.replanCount,
+              maxReplans: context.limits.maxReplansPerRun
+            });
         // Apply meta-cognition: scale confidence by experience level
         const cognitiveDecision = {
           ...rawDecision,
           confidence: rawDecision.confidence * experienceAssessment.confidenceMultiplier
         };
+
+        // Integration: Meta-cognition — pause for help when stuck
+        if (shouldRequestHelp(experienceAssessment)) {
+          appendEpisodeEvent(context, {
+            taskId: task.id,
+            kind: "observe",
+            summary: `Meta-cognition: requesting help — ${experienceAssessment.rationale} (confidence: ${cognitiveDecision.confidence.toFixed(2)})`,
+            metadata: {
+              stuckLevel: experienceAssessment.stuckLevel,
+              confidenceMultiplier: experienceAssessment.confidenceMultiplier
+            }
+          });
+          publishEvent({
+            type: "help_requested",
+            runId: context.runId,
+            taskId: task.id,
+            timestamp: new Date().toISOString(),
+            message: `Agent is stuck: ${experienceAssessment.rationale}. Confidence: ${cognitiveDecision.confidence.toFixed(2)}`
+          });
+
+          // If approval system is enabled, pause and wait for human guidance
+          if (context.policy?.approval?.enabled) {
+            const { requestApproval } = await import("../approval/gate");
+            const helpResponse = await requestApproval({
+              runId: context.runId,
+              taskId: task.id,
+              taskType: task.type,
+              taskPayload: task.payload as Record<string, unknown>,
+              reason: `Agent is stuck (${experienceAssessment.rationale}). Should it continue with task "${task.type}"?`
+            });
+            if (helpResponse.status === "rejected") {
+              throw new Error(`Human rejected continuation: agent was stuck (${experienceAssessment.rationale})`);
+            }
+          }
+        }
+
         recordDecision(context, task.id, cognitiveDecision.rationale, cognitiveDecision);
 
         if (cognitiveDecision.nextAction === "abort") {
@@ -205,7 +285,8 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
           const recoveryReason = await analyzeRecoveryOptions(
             context,
             task,
-            `${task.type} verification requested recovery: ${cognitiveDecision.rationale}`
+            `${task.type} verification requested recovery: ${cognitiveDecision.rationale}`,
+            causalGraph
           );
           const handled = await handleReplan(
             context,
@@ -219,6 +300,12 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
             index = handled.nextIndex;
             continue;
           }
+        }
+
+        // Integration: Checkpoint — save progress every 5 tasks for long-horizon recovery
+        if (index > 0 && index % 5 === 0) {
+          const { saveCheckpoint } = await import("./checkpoint");
+          saveCheckpoint(context, index - 1, summaries);
         }
 
         index += 1;
@@ -245,6 +332,11 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
           });
         }
 
+        // Integration: Apply online adaptation to upcoming tasks
+        if (adaptation) {
+          applyOnlineAdaptation(context, task, adaptation, index);
+        }
+
         const failureObservation = await observeAndRecord(context, task, `Failure observation: ${message}`);
         const failureVerification = createFailureVerification(context, task.id, message);
         recordVerification(context, failureVerification);
@@ -266,7 +358,7 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
           throw error;
         }
 
-        const recoveryReason = await analyzeRecoveryOptions(context, task, message);
+        const recoveryReason = await analyzeRecoveryOptions(context, task, message, causalGraph);
         const handled = await handleReplan(context, task, recoveryReason, options, summaries, index);
         if (handled.nextIndex !== null) {
           index = handled.nextIndex;
@@ -282,6 +374,10 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
       message: `Goal: ${goal}\n${summaries.join("\n")}`
     };
     context.terminationReason = "success";
+    try {
+      const { clearCheckpoint } = await import("./checkpoint");
+      clearCheckpoint(context.runId);
+    } catch { /* optional */ }
   } catch (error) {
     const message = getErrorMessage(error);
     context.result = {
@@ -296,15 +392,48 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
     clearApprovals(context.runId);
     await context.screencastSession?.stop();
     context.screencastSession = undefined;
-    await closeBrowserSession(context.browserSession);
-    await stopApp(context.appProcess);
-    context.browserSession = undefined;
-    context.appProcess = undefined;
+    if (options.keepBrowserAlive) {
+      // Conversation mode: keep browser and app alive for next turn
+    } else {
+      await closeBrowserSession(context.browserSession);
+      await stopApp(context.appProcess);
+      context.browserSession = undefined;
+      context.appProcess = undefined;
+    }
 
     context.metrics = calculateRunMetrics(context);
     context.reflection = await reflectOnRun(context);
     finalizeUsageLedger(context);
     extractKnowledgeFromRun(context);
+
+    // Integration: Reflection loop — analyze failure patterns and evolve strategies
+    try {
+      const reflectionInsight = runReflection();
+      if (reflectionInsight.recommendations.length > 0) {
+        const applied = applyInsights(reflectionInsight);
+        appendEpisodeEvent(context, {
+          kind: "observe",
+          summary: `Reflection: ${reflectionInsight.recommendations.length} recommendations, ${applied} strategies updated`,
+          metadata: {
+            recommendations: reflectionInsight.recommendations.length,
+            strategiesApplied: applied,
+            dominantStrategies: reflectionInsight.dominantRecoveryStrategies.length
+          }
+        });
+      }
+    } catch {
+      // Reflection is optional — never block run completion
+    }
+
+    // Integration: Causal graph — extract state transitions and persist for future runs
+    try {
+      extractCausalTransitions(context, causalGraph);
+      const { saveCausalGraph } = await import("../world-model/persistence");
+      saveCausalGraph(causalGraph);
+    } catch {
+      // Causal extraction/persistence is optional
+    }
+
     await saveReflectionToFile(context.reflection);
     await saveRun(context);
 
@@ -325,6 +454,24 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
       });
     } catch {
       // Episode saving is optional — never block run completion
+    }
+
+    // Integration: Memory maintenance — prune old episodes and low-confidence knowledge
+    try {
+      const { pruneEpisodes } = await import("../memory/episode-store");
+      const { pruneKnowledge, enforceKnowledgeCapacity } = await import("../knowledge/store");
+      const episodePruned = pruneEpisodes(90, 500);
+      const knowledgePruned = pruneKnowledge(0.2, 60);
+      const capacityPruned = enforceKnowledgeCapacity(200);
+      if (episodePruned + knowledgePruned + capacityPruned > 0) {
+        appendEpisodeEvent(context, {
+          kind: "observe",
+          summary: `Memory maintenance: pruned ${episodePruned} episodes, ${knowledgePruned + capacityPruned} knowledge entries`,
+          metadata: { episodePruned, knowledgePruned, capacityPruned }
+        });
+      }
+    } catch {
+      // Memory maintenance is optional
     }
 
     publishEvent({
@@ -543,8 +690,24 @@ function shouldRunGoalVerification(
 async function analyzeRecoveryOptions(
   context: RunContext,
   task: RunContext["tasks"][number],
-  failureReason: string
+  failureReason: string,
+  causalGraph?: CausalGraph
 ): Promise<string> {
+  // Causal graph: check if there's a known alternative path to the goal
+  if (causalGraph && causalGraph.edges.size > 0) {
+    const currentState = inferCurrentState({
+      pageUrl: context.worldState?.pageUrl,
+      appState: context.worldState?.appState,
+      visibleText: context.latestObservation?.visibleText
+    });
+    const goalState = inferGoalState(context.goal);
+    const altPath = findPath(causalGraph, currentState, goalState);
+    if (altPath.length > 0) {
+      const pathHint = altPath.map(e => `${e.action}("${e.actionDetail}")`).join(" → ");
+      failureReason = `${failureReason} [Causal graph suggests alternative path: ${pathHint}]`;
+    }
+  }
+
   const hypotheses = generateFailureHypotheses({
     context,
     task,
@@ -660,4 +823,62 @@ function recordWorldState(
   context.worldState = snapshot;
   context.worldStateHistory ??= [];
   context.worldStateHistory.push(snapshot);
+}
+
+function applyOnlineAdaptation(
+  context: RunContext,
+  failedTask: RunContext["tasks"][number],
+  adaptation: { strategy: string; reason: string },
+  currentIndex: number
+): void {
+  const strategy = adaptation.strategy;
+
+  // Strategy: switch to visual variant (visual_click, visual_type)
+  if (strategy.startsWith("visual_")) {
+    const visualType = strategy as AgentTask["type"];
+    // Find the next task with the same selector and convert it
+    for (let i = currentIndex + 1; i < context.tasks.length; i++) {
+      const upcoming = context.tasks[i];
+      if (
+        upcoming.status === "pending" &&
+        upcoming.payload.selector === failedTask.payload.selector &&
+        (upcoming.type === "click" || upcoming.type === "type" || upcoming.type === "select")
+      ) {
+        const originalType = upcoming.type;
+        upcoming.type = visualType;
+        upcoming.payload.description = upcoming.payload.description ?? upcoming.payload.selector;
+        appendEpisodeEvent(context, {
+          taskId: upcoming.id,
+          kind: "recover",
+          summary: `Adapted task from ${originalType} to ${visualType}: ${adaptation.reason}`,
+          metadata: { originalType, newType: visualType }
+        });
+        break;
+      }
+    }
+    return;
+  }
+
+  // Strategy: add wait before next task
+  if (strategy === "add_wait") {
+    const waitTask: AgentTask = {
+      id: `${context.runId}-${context.nextTaskSequence}-adaptive_wait`,
+      type: "wait",
+      status: "pending",
+      retries: 0,
+      attempts: 0,
+      replanDepth: 0,
+      payload: { ms: 1000 }
+    };
+    context.nextTaskSequence += 1;
+    context.tasks.splice(currentIndex + 1, 0, waitTask);
+    context.insertedTaskCount += 1;
+    appendEpisodeEvent(context, {
+      taskId: waitTask.id,
+      kind: "recover",
+      summary: `Inserted adaptive wait: ${adaptation.reason}`,
+      metadata: { strategy: "add_wait", waitMs: 1000 }
+    });
+    return;
+  }
 }

@@ -10,6 +10,11 @@ import { memoryRoutes } from "./routes/memory";
 import { toolsRoutes } from "./routes/tools";
 import { approvalsRoutes } from "./routes/approvals";
 import { sessionsRoutes } from "./routes/sessions";
+import { conversationsRoutes } from "./routes/conversations";
+import { exploreRoutes } from "./routes/explore";
+import { coordinateRoutes } from "./routes/coordinate";
+import { reactRoutes } from "./routes/react";
+import { computerUseRoutes } from "./routes/computer-use";
 import { authPlugin, initApiKeysTable, createApiKey } from "./plugins/auth";
 import { initSchedulesTable } from "../scheduler/store";
 import { startScheduler } from "../scheduler/engine";
@@ -45,6 +50,11 @@ export async function buildServer() {
   await app.register(toolsRoutes, { prefix: "/api/v1" });
   await app.register(approvalsRoutes, { prefix: "/api/v1" });
   await app.register(sessionsRoutes, { prefix: "/api/v1" });
+  await app.register(conversationsRoutes, { prefix: "/api/v1" });
+  await app.register(exploreRoutes, { prefix: "/api/v1" });
+  await app.register(coordinateRoutes, { prefix: "/api/v1" });
+  await app.register(reactRoutes, { prefix: "/api/v1" });
+  await app.register(computerUseRoutes, { prefix: "/api/v1" });
 
   app.get("/health", async () => ({
     status: "ok",

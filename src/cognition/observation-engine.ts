@@ -1,5 +1,6 @@
 import type { AgentTask, RunContext } from "../types";
 import type { AgentObservation, ObservationInput } from "./types";
+import { analyzeSceneFromText } from "../vision/scene-analyzer";
 
 export async function observeEnvironment(
   context: RunContext,
@@ -25,6 +26,20 @@ export async function observeEnvironment(
     payload.actionableElements = await collectActionableElements(page);
     payload.appStateGuess = inferAppStateGuess(payload);
     payload.confidence = 0.75;
+
+    // Visual scene analysis — heuristic-based (no screenshot needed)
+    try {
+      const textForScene = payload.visibleText ?? [];
+      const scene = analyzeSceneFromText(textForScene);
+      payload.sceneDescription = {
+        pageType: scene.pageType,
+        keyElements: scene.keyElements,
+        stateIndicators: scene.stateIndicators,
+        confidence: scene.confidence
+      };
+    } catch {
+      // Scene analysis is optional
+    }
   } catch (error) {
     payload.anomalies?.push(error instanceof Error ? error.message : "Observation failed.");
     payload.confidence = 0.3;
@@ -45,6 +60,7 @@ export function materializeObservation(input: ObservationInput): AgentObservatio
     visibleText: input.visibleText ?? [],
     actionableElements: input.actionableElements ?? [],
     appStateGuess: input.appStateGuess,
+    sceneDescription: input.sceneDescription,
     anomalies: input.anomalies ?? [],
     confidence: input.confidence ?? 0.5
   };

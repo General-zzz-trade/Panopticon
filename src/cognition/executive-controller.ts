@@ -8,6 +8,7 @@ export function decideNextStep(input: {
   goalVerification?: VerificationResult;
   replanCount: number;
   maxReplans?: number;
+  causalPathAvailable?: boolean;
 }): CognitiveDecision {
   const failedVerification = [
     input.actionVerification,
@@ -35,10 +36,11 @@ export function decideNextStep(input: {
   const budgetRatio = maxReplans > 0 ? (maxReplans - input.replanCount) / maxReplans : 0;
 
   if (maxReplans > 0 && input.replanCount < maxReplans) {
-    const replanConfidence = 0.6 + budgetRatio * 0.2;
+    const causalBoost = input.causalPathAvailable ? 0.05 : 0;
+    const replanConfidence = 0.6 + budgetRatio * 0.2 + causalBoost;
     return {
       nextAction: "replan",
-      rationale: `Verification failed in ${failedVerification.verifier}; replan budget remains available (${maxReplans - input.replanCount}/${maxReplans}).`,
+      rationale: `Verification failed in ${failedVerification.verifier}; replan budget remains available (${maxReplans - input.replanCount}/${maxReplans}).${input.causalPathAvailable ? " Causal graph has a known path." : ""}`,
       confidence: replanConfidence
     };
   }

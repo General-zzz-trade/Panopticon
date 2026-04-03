@@ -8,6 +8,7 @@ import { Logger } from "../logger";
 import { captureRetryFailureArtifact, getRetryPolicy, waitBeforeRetry } from "./retry";
 import { AgentTask, RunContext } from "../types";
 import { getActionHandler } from "../plugins/registry";
+import { getTool, toolRequiresApproval as registryRequiresApproval } from "../tools/registry";
 
 export async function executeTask(
   context: RunContext,
@@ -59,7 +60,33 @@ async function dispatchTask(
   task: AgentTask,
   logger: Logger
 ): Promise<TaskExecutionOutput> {
-  // Check if human approval is required before executing this task
+  // Integration: Tools registry — validate parameters and check approval requirements
+  const toolDef = getTool(task.type);
+  if (toolDef) {
+    // Validate required parameters
+    for (const param of toolDef.parameters) {
+      if (param.required && (task.payload as Record<string, unknown>)[param.name] == null) {
+        throw new Error(`Task ${task.id} (${task.type}) missing required parameter: ${param.name}`);
+      }
+    }
+
+    // Registry-driven approval check (supplements policy-based check below)
+    if (registryRequiresApproval(task.type) && context.policy?.approval?.enabled) {
+      const { requestApproval } = await import("../approval/gate");
+      const approval = await requestApproval({
+        runId: context.runId,
+        taskId: task.id,
+        taskType: task.type,
+        taskPayload: task.payload as Record<string, unknown>,
+        reason: `Tool "${task.type}" is marked as requiring approval in the tools registry`
+      });
+      if (approval.status === "rejected") {
+        throw new Error(`Task ${task.id} rejected by human reviewer (registry-required approval)`);
+      }
+    }
+  }
+
+  // Check if human approval is required before executing this task (policy-based)
   if (context.policy?.approval?.enabled) {
     const { requiresApproval, requestApproval } = await import("../approval/gate");
     if (requiresApproval(task.type, task.payload as Record<string, unknown>, context.policy.approval)) {

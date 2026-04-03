@@ -1,11 +1,13 @@
 import { Logger } from "../logger";
 import {
   clickElement,
+  clickWithIframeFallback,
   createBrowserSession,
   hoverElement,
   openPage,
   scrollElement,
   selectOption,
+  setupPopupHandler,
   takeScreenshot,
   typeIntoElement,
   waitForDuration
@@ -70,6 +72,12 @@ async function executeBrowserAction(
 
       logger.info(`Opening page: ${url}`);
       const title = await openPage(session, url);
+      // Wait for SPA hydration / network settle
+      try {
+        await session.page.waitForLoadState("networkidle", { timeout: 5000 });
+      } catch {
+        // Network idle timeout is acceptable — page may have long-polling
+      }
 
       // Capture any cookies set during navigation (e.g., CSRF tokens)
       await captureSession(session.context, tenantId, domain);
@@ -89,7 +97,17 @@ async function executeBrowserAction(
       const selector = readString(task, "selector");
       const session = requireBrowserSession(context, task.type);
       logger.info(`Clicking: ${selector}`);
-      await clickElement(session, selector);
+      // Wait for element to appear (handles dynamic content and SPA navigation)
+      try {
+        await session.page.waitForSelector(selector, { timeout: 5000 });
+      } catch {
+        // Element may already exist or selector may be text-based — proceed with click attempt
+      }
+      // Try clicking with iframe fallback
+      const clickResult = await clickWithIframeFallback(session, selector);
+      if (clickResult.inIframe) {
+        logger.info(`Found element in iframe: ${clickResult.frameSelector}`);
+      }
 
       // Capture session after clicking login/submit buttons (heuristic)
       const lowerSelector = selector.toLowerCase();
@@ -113,6 +131,11 @@ async function executeBrowserAction(
       const text = readString(task, "text");
       const session = requireBrowserSession(context, task.type);
       logger.info(`Typing into: ${selector}`);
+      try {
+        await session.page.waitForSelector(selector, { timeout: 5000 });
+      } catch {
+        // Proceed with type attempt
+      }
       await typeIntoElement(session, selector, text);
 
       // Auto-capture session after typing into a password field (login heuristic)
@@ -139,6 +162,11 @@ async function executeBrowserAction(
       const value = readString(task, "value");
       const session = requireBrowserSession(context, task.type);
       logger.info(`Selecting "${value}" in: ${selector}`);
+      try {
+        await session.page.waitForSelector(selector, { timeout: 5000 });
+      } catch {
+        // Proceed with select attempt
+      }
       await selectOption(session, selector, value);
       return {
         summary: `Selected "${value}" in: ${selector}`,
@@ -206,6 +234,16 @@ async function executeBrowserAction(
 async function getOrCreateBrowserSession(context: RunContext) {
   if (!context.browserSession) {
     context.browserSession = await createBrowserSession();
+    // Auto-dismiss dialogs (alert, confirm, prompt) to prevent blocking
+    context.browserSession.page.on("dialog", async (dialog) => {
+      try {
+        await dialog.accept();
+      } catch {
+        // Dialog may already be dismissed
+      }
+    });
+    // Auto-switch to popup windows
+    setupPopupHandler(context.browserSession);
   }
 
   return context.browserSession;

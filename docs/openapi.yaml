@@ -1,0 +1,1302 @@
+openapi: 3.0.3
+info:
+  title: Agent Orchestrator API
+  description: >
+    API for submitting autonomous agent goals, managing runs, scheduling
+    recurring tasks, coordinating multi-agent workflows, and exploring websites.
+  version: 1.0.0
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:3000
+    description: Local development server
+
+security:
+  - ApiKeyAuth: []
+
+tags:
+  - name: Runs
+    description: Submit goals and track execution runs
+  - name: Stream
+    description: Server-Sent Events for real-time run updates
+  - name: Conversations
+    description: Multi-turn conversation sessions
+  - name: Coordinate
+    description: Multi-agent coordination planning
+  - name: Explore
+    description: Autonomous website exploration
+  - name: Schedules
+    description: Cron-based recurring goal scheduling
+  - name: Memory
+    description: Tenant-scoped user memory and preferences
+  - name: Tools
+    description: Auto-generated action tools and plugin listing
+  - name: Approvals
+    description: Human-in-the-loop approval gates
+  - name: Sessions
+    description: Saved browser/auth sessions
+  - name: Keys
+    description: API key management
+  - name: System
+    description: Health, metrics, plugins, and knowledge stats
+
+paths:
+  # ── Health & System ──────────────────────────────────────────────
+  /health:
+    get:
+      tags: [System]
+      summary: Health check
+      security: []
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /metrics:
+    get:
+      tags: [System]
+      summary: Prometheus metrics
+      description: Returns metrics in Prometheus exposition format. No authentication required.
+      security: []
+      operationId: getMetrics
+      responses:
+        "200":
+          description: Prometheus metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /api/v1/plugins:
+    get:
+      tags: [System]
+      summary: List registered plugins
+      operationId: listPlugins
+      responses:
+        "200":
+          description: Plugin list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plugins:
+                    type: array
+                    items:
+                      type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/knowledge/stats:
+    get:
+      tags: [System]
+      summary: Knowledge base statistics
+      operationId: getKnowledgeStats
+      responses:
+        "200":
+          description: Knowledge stats
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── API Keys ─────────────────────────────────────────────────────
+  /api/v1/keys:
+    post:
+      tags: [Keys]
+      summary: Create a new API key
+      operationId: createApiKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+      responses:
+        "201":
+          description: API key created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                    description: The generated API key (shown only once)
+                  name:
+                    type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Runs ─────────────────────────────────────────────────────────
+  /api/v1/runs:
+    post:
+      tags: [Runs]
+      summary: Submit a goal for execution
+      description: >
+        Accepts a goal string, validates it, checks for ambiguity (may return a
+        clarification question), decomposes complex goals, then enqueues the run.
+        Returns 202 on success.
+      operationId: createRun
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [goal]
+              properties:
+                goal:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+                options:
+                  type: object
+                  description: Arbitrary options forwarded to the runtime
+                  properties:
+                    confirmDangerous:
+                      type: boolean
+                      description: Set to true to confirm a goal flagged as dangerous
+      responses:
+        "202":
+          description: Run accepted and enqueued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runId:
+                    type: string
+                  status:
+                    type: string
+                    enum: [pending]
+                  tenantId:
+                    type: string
+                  decomposition:
+                    type: object
+                    nullable: true
+                    properties:
+                      steps:
+                        type: integer
+                      preview:
+                        type: string
+        "200":
+          description: Clarification needed before the run can proceed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runId:
+                    type: string
+                  status:
+                    type: string
+                    enum: [needs_clarification]
+                  question:
+                    type: string
+                  hint:
+                    type: string
+        "400":
+          description: Validation error or dangerous goal blocked
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Error"
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                        enum: [dangerous_goal]
+                      reason:
+                        type: string
+                      hint:
+                        type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    get:
+      tags: [Runs]
+      summary: List recent runs
+      operationId: listRuns
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Paginated run list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runs:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RunSummary"
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/runs/{id}:
+    get:
+      tags: [Runs]
+      summary: Get full run detail
+      operationId: getRun
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: Full run object
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/runs/{id}/status:
+    get:
+      tags: [Runs]
+      summary: Get live run status
+      operationId: getRunStatus
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: Current run status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runId:
+                    type: string
+                  status:
+                    type: string
+                    enum: [pending, running, success, failed, unknown]
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/runs/{id}/artifacts:
+    get:
+      tags: [Runs]
+      summary: List run artifacts
+      operationId: getRunArtifacts
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: Artifact list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  artifacts:
+                    type: array
+                    items:
+                      type: object
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/runs/{id}/cognition:
+    get:
+      tags: [Runs]
+      summary: Get cognition trace for a run
+      operationId: getRunCognition
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: Structured cognition trace
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/runs/{id}/clarify:
+    post:
+      tags: [Runs]
+      summary: Answer a clarification question to resume a run
+      operationId: clarifyRun
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [answer]
+              properties:
+                answer:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+      responses:
+        "202":
+          description: Clarification accepted, run resumed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runId:
+                    type: string
+                  status:
+                    type: string
+                    enum: [accepted]
+                  enrichedGoal:
+                    type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Stream (SSE) ─────────────────────────────────────────────────
+  /api/v1/runs/{id}/stream:
+    get:
+      tags: [Stream]
+      summary: Real-time SSE event stream for a run
+      description: >
+        Opens a Server-Sent Events connection that emits run progress events.
+        If the run is already complete or not found, a single
+        `run_not_found_or_complete` event is sent and the stream closes.
+        A keep-alive ping comment is sent every 15 seconds.
+      operationId: streamRunEvents
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: "Newline-delimited JSON objects prefixed with `data: `"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Queue ────────────────────────────────────────────────────────
+  /api/v1/queue/stats:
+    get:
+      tags: [Runs]
+      summary: Worker pool queue statistics
+      operationId: getQueueStats
+      responses:
+        "200":
+          description: Queue statistics
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Conversations ────────────────────────────────────────────────
+  /api/v1/conversations:
+    post:
+      tags: [Conversations]
+      summary: Create a new conversation session
+      operationId: createConversation
+      responses:
+        "201":
+          description: Conversation created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  createdAt:
+                    type: string
+                    format: date-time
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    get:
+      tags: [Conversations]
+      summary: List active conversations
+      operationId: listConversations
+      responses:
+        "200":
+          description: Conversation list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversations:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ConversationSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/conversations/{id}:
+    get:
+      tags: [Conversations]
+      summary: Get conversation details
+      operationId: getConversation
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      responses:
+        "200":
+          description: Conversation with full turn history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  turns:
+                    type: array
+                    items:
+                      type: object
+                  summary:
+                    type: string
+                  createdAt:
+                    type: string
+                    format: date-time
+                  lastActiveAt:
+                    type: string
+                    format: date-time
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    delete:
+      tags: [Conversations]
+      summary: End and delete a conversation
+      operationId: deleteConversation
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      responses:
+        "204":
+          description: Conversation deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/conversations/{id}/turns:
+    post:
+      tags: [Conversations]
+      summary: Execute a goal within the conversation
+      operationId: createConversationTurn
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [goal]
+              properties:
+                goal:
+                  type: string
+                  minLength: 1
+      responses:
+        "200":
+          description: Turn executed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  turn:
+                    type: object
+                  result:
+                    type: object
+                  summary:
+                    type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Coordinate ───────────────────────────────────────────────────
+  /api/v1/coordinate:
+    post:
+      tags: [Coordinate]
+      summary: Plan a multi-agent coordination for a goal
+      operationId: planCoordination
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [goal]
+              properties:
+                goal:
+                  type: string
+                  minLength: 1
+      responses:
+        "200":
+          description: Coordination plan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  originalGoal:
+                    type: string
+                  strategy:
+                    type: string
+                  workers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        goal:
+                          type: string
+                        status:
+                          type: string
+                  readyWorkers:
+                    type: array
+                    items:
+                      type: string
+                  dependencies:
+                    type: object
+                    additionalProperties:
+                      type: array
+                      items:
+                        type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Explore ──────────────────────────────────────────────────────
+  /api/v1/explore:
+    post:
+      tags: [Explore]
+      summary: Plan an autonomous exploration of a URL
+      operationId: planExploration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url:
+                  type: string
+                  minLength: 1
+                maxSteps:
+                  type: integer
+                  minimum: 1
+                  maximum: 100
+                maxDepth:
+                  type: integer
+                  minimum: 1
+                  maximum: 10
+      responses:
+        "200":
+          description: Exploration plan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                  plannedActions:
+                    type: integer
+                  actions:
+                    type: array
+                    items:
+                      type: object
+                  config:
+                    type: object
+                    properties:
+                      maxSteps:
+                        type: integer
+                      maxDepth:
+                        type: integer
+                      timeout:
+                        type: integer
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Schedules ────────────────────────────────────────────────────
+  /api/v1/schedules:
+    post:
+      tags: [Schedules]
+      summary: Create a recurring schedule
+      operationId: createSchedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, goal, cronExpr]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                goal:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+                cronExpr:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  description: "Cron expression (e.g. '0 9 * * *')"
+      responses:
+        "201":
+          description: Schedule created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Schedule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    get:
+      tags: [Schedules]
+      summary: List schedules for the current tenant
+      operationId: listSchedules
+      responses:
+        "200":
+          description: Schedule list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schedules:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Schedule"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/schedules/{id}:
+    get:
+      tags: [Schedules]
+      summary: Get a schedule by ID
+      operationId: getSchedule
+      parameters:
+        - $ref: "#/components/parameters/ScheduleId"
+      responses:
+        "200":
+          description: Schedule detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Schedule"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    delete:
+      tags: [Schedules]
+      summary: Delete a schedule
+      operationId: deleteSchedule
+      parameters:
+        - $ref: "#/components/parameters/ScheduleId"
+      responses:
+        "204":
+          description: Schedule deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/schedules/{id}/enable:
+    patch:
+      tags: [Schedules]
+      summary: Enable a schedule
+      operationId: enableSchedule
+      parameters:
+        - $ref: "#/components/parameters/ScheduleId"
+      responses:
+        "200":
+          description: Schedule enabled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  enabled:
+                    type: boolean
+                    enum: [true]
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/schedules/{id}/disable:
+    patch:
+      tags: [Schedules]
+      summary: Disable a schedule
+      operationId: disableSchedule
+      parameters:
+        - $ref: "#/components/parameters/ScheduleId"
+      responses:
+        "200":
+          description: Schedule disabled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  enabled:
+                    type: boolean
+                    enum: [false]
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Memory ───────────────────────────────────────────────────────
+  /api/v1/memory:
+    get:
+      tags: [Memory]
+      summary: List all memory entries for the tenant
+      operationId: listMemory
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [preference, frequent_goal, context, general]
+      responses:
+        "200":
+          description: Memory entries and frequent goals
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/MemoryEntry"
+                  frequentGoals:
+                    type: array
+                    items:
+                      type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    delete:
+      tags: [Memory]
+      summary: Clear all memory for the tenant
+      operationId: clearMemory
+      responses:
+        "204":
+          description: All memory cleared
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/memory/{key}:
+    put:
+      tags: [Memory]
+      summary: Upsert a memory entry
+      operationId: upsertMemory
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+                category:
+                  type: string
+                  enum: [preference, frequent_goal, context, general]
+                  default: general
+      responses:
+        "200":
+          description: Memory entry upserted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryEntry"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    get:
+      tags: [Memory]
+      summary: Get a memory entry by key
+      operationId: getMemory
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Memory entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryEntry"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    delete:
+      tags: [Memory]
+      summary: Delete a memory entry
+      operationId: deleteMemory
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Memory entry deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Tools ────────────────────────────────────────────────────────
+  /api/v1/tools:
+    get:
+      tags: [Tools]
+      summary: List all plugins and generated tools
+      operationId: listTools
+      responses:
+        "200":
+          description: Tool listing
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plugins:
+                    type: array
+                    items:
+                      type: object
+                  generatedTools:
+                    type: array
+                    items:
+                      type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/tools/generate:
+    post:
+      tags: [Tools]
+      summary: Generate and register a new action tool
+      operationId: generateTool
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, description, payloadFields]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 60
+                description:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+                payloadFields:
+                  type: array
+                  items:
+                    type: object
+                    required: [name, type, required]
+                    properties:
+                      name:
+                        type: string
+                      type:
+                        type: string
+                        enum: [string, number, boolean]
+                      required:
+                        type: boolean
+                implementation:
+                  type: string
+                  enum: [http, shell, custom]
+      responses:
+        "201":
+          description: Tool generated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [true]
+        "500":
+          description: Tool generation failed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    enum: [false]
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Approvals ────────────────────────────────────────────────────
+  /api/v1/approvals:
+    get:
+      tags: [Approvals]
+      summary: List pending approvals for a run
+      operationId: listApprovals
+      parameters:
+        - name: runId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Pending approval list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  approvals:
+                    type: array
+                    items:
+                      type: object
+        "400":
+          description: Missing runId query parameter
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/approvals/{id}/respond:
+    post:
+      tags: [Approvals]
+      summary: Approve or reject a pending approval
+      operationId: respondToApproval
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approved]
+              properties:
+                approved:
+                  type: boolean
+                respondedBy:
+                  type: string
+      responses:
+        "200":
+          description: Approval response recorded
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Sessions ─────────────────────────────────────────────────────
+  /api/v1/sessions:
+    get:
+      tags: [Sessions]
+      summary: List saved sessions for the tenant
+      operationId: listSessions
+      responses:
+        "200":
+          description: Session list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/sessions/{domain}:
+    delete:
+      tags: [Sessions]
+      summary: Delete a saved session by domain
+      operationId: deleteSession
+      parameters:
+        - name: domain
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Session deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: >
+        API key for authentication. Disable auth in dev mode by setting
+        AGENT_API_AUTH=false.
+
+  parameters:
+    RunId:
+      name: id
+      in: path
+      required: true
+      description: Run identifier
+      schema:
+        type: string
+    ConversationId:
+      name: id
+      in: path
+      required: true
+      description: Conversation identifier
+      schema:
+        type: string
+    ScheduleId:
+      name: id
+      in: path
+      required: true
+      description: Schedule identifier
+      schema:
+        type: string
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+
+    RunSummary:
+      type: object
+      properties:
+        runId:
+          type: string
+        goal:
+          type: string
+        status:
+          type: string
+          enum: [running, success, failed]
+        plannerUsed:
+          type: string
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+          nullable: true
+        replanCount:
+          type: integer
+        taskCount:
+          type: integer
+
+    RunDetail:
+      type: object
+      properties:
+        runId:
+          type: string
+        goal:
+          type: string
+        plannerUsed:
+          type: string
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+          nullable: true
+        replanCount:
+          type: integer
+        tasks:
+          type: array
+          items:
+            type: object
+        artifacts:
+          type: array
+          items:
+            type: object
+        result:
+          type: object
+          nullable: true
+          properties:
+            success:
+              type: boolean
+            summary:
+              type: string
+
+    Schedule:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        goal:
+          type: string
+        cronExpr:
+          type: string
+        tenantId:
+          type: string
+        enabled:
+          type: boolean
+        nextRunAt:
+          type: string
+          format: date-time
+
+    MemoryEntry:
+      type: object
+      properties:
+        key:
+          type: string
+        value:
+          type: string
+        category:
+          type: string
+          enum: [preference, frequent_goal, context, general]
+        tenantId:
+          type: string
+
+    ConversationSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        turns:
+          type: integer
+        summary:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        lastActiveAt:
+          type: string
+          format: date-time
+
+  responses:
+    BadRequest:
+      description: Invalid request body or parameters
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"

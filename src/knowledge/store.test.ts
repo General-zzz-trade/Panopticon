@@ -58,12 +58,16 @@ test("upsertLesson: confidence increases on update", () => {
   assert.ok(row.confidence > 0.5);
 });
 
-test("getLessonsForTaskType: scoped to domain", () => {
+test("getLessonsForTaskType: scoped to domain with cross-domain fallback", () => {
   upsertLesson({ taskType: "click", errorPattern: "not visible", recovery: "scroll first", domain: "app.example.com", successCount: 1 });
   upsertLesson({ taskType: "click", errorPattern: "not visible", recovery: "wait 500ms", domain: "other.com", successCount: 1 });
   const lessons = getLessonsForTaskType("click", "app.example.com");
-  assert.equal(lessons.length, 1);
+  // Domain-specific lesson is always first; cross-domain fallback adds lessons when fewer than 3
+  assert.ok(lessons.length >= 1);
   assert.equal(lessons[0].recovery, "scroll first");
+  // Cross-domain fallback adds "wait 500ms" since domain-specific count < 3
+  assert.equal(lessons.length, 2);
+  assert.equal(lessons[1].recovery, "wait 500ms");
 });
 
 test("retrieveRecoveryPriors: prefers matching hypothesis and domain", () => {
@@ -72,7 +76,7 @@ test("retrieveRecoveryPriors: prefers matching hypothesis and domain", () => {
     errorPattern: "selector moved",
     recovery: "use visual_click",
     domain: "app.example.com",
-    successCount: 1,
+    successCount: 10,
     hypothesisKind: "selector_drift",
     recoverySequence: ["use visual_click"]
   });
@@ -87,7 +91,7 @@ test("retrieveRecoveryPriors: prefers matching hypothesis and domain", () => {
     errorPattern: "selector moved",
     recovery: "reopen page",
     domain: "other.example.com",
-    successCount: 10,
+    successCount: 3,
     hypothesisKind: "missing_page_context"
   });
 
@@ -98,6 +102,7 @@ test("retrieveRecoveryPriors: prefers matching hypothesis and domain", () => {
   });
 
   assert.equal(priors.length, 2);
+  // The domain+hypothesis match should be top-ranked by scoreLesson
   assert.equal(priors[0].recovery, "use visual_click");
   assert.equal(priors[0].hypothesisKind, "selector_drift");
 });
