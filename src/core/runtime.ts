@@ -21,6 +21,14 @@ import { verifyGoalProgress } from "../verifier/goal-verifier";
 import { verifyStateResult } from "../verifier/state-verifier";
 import { AgentPolicy, PlannerTieBreakerPolicy, RunContext, RunLimits, TerminationReason } from "../types";
 import { publishEvent, closeEmitter } from "../streaming/event-bus";
+// Research module integrations
+import { createOnlineAdapterState, recordInRunFailure, suggestAdaptation, type OnlineAdapterState } from "../learning/online-adapter";
+import { detectAnomalies } from "../cognition/anomaly-detector";
+import { assessExperience } from "../cognition/meta-cognition";
+import { findSimilarEpisodes, formatEpisodesAsContext } from "../memory/semantic-search";
+import { saveEpisode, initEpisodesTable } from "../memory/episode-store";
+import { generateEpisodeSummary, extractDomainFromRun } from "../memory/episode-generator";
+import { computeEmbedding } from "../memory/embedding";
 
 export interface RunOptions {
   maxReplansPerRun?: number;
@@ -47,6 +55,18 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
     preferLowerTaskCountOnTie: options.tieBreakerPolicy?.preferLowerTaskCountOnTie ?? true
   };
   const usageLedger = createUsageLedger();
+  const onlineAdapter = createOnlineAdapterState();
+
+  // Integration: Semantic memory — retrieve similar past episodes for planner context
+  let episodeContext = "";
+  try {
+    initEpisodesTable();
+    const similarEpisodes = await findSimilarEpisodes(goal, 3);
+    episodeContext = formatEpisodesAsContext(similarEpisodes);
+  } catch {
+    // Episode retrieval is optional — continue without it
+  }
+
   const planResult = await planTasks(goal, {
     runId,
     mode: options.plannerMode ?? "auto",
@@ -140,7 +160,21 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
           stateHints: output.stateHints
         }), "task_observe", "post_task_verification");
 
-        const cognitiveDecision = decideNextStep({
+        // Integration: Anomaly detection — check for unexpected state after each task
+        const anomalyReport = detectAnomalies(task, beforeObservation, afterObservation, context);
+        if (anomalyReport.anomalies.length > 0) {
+          appendEpisodeEvent(context, {
+            taskId: task.id,
+            kind: "observe",
+            summary: `Anomaly detected: ${anomalyReport.summary}`,
+            metadata: { anomalyCount: anomalyReport.anomalies.length, risk: anomalyReport.overallRisk }
+          });
+        }
+
+        // Integration: Meta-cognition — adjust confidence based on experience
+        const experienceAssessment = assessExperience(context, task);
+
+        const rawDecision = decideNextStep({
           task,
           actionVerification,
           stateVerification,
@@ -148,6 +182,11 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
           replanCount: context.replanCount,
           maxReplans: context.limits.maxReplansPerRun
         });
+        // Apply meta-cognition: scale confidence by experience level
+        const cognitiveDecision = {
+          ...rawDecision,
+          confidence: rawDecision.confidence * experienceAssessment.confidenceMultiplier
+        };
         recordDecision(context, task.id, cognitiveDecision.rationale, cognitiveDecision);
 
         if (cognitiveDecision.nextAction === "abort") {
@@ -185,6 +224,27 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
         index += 1;
       } catch (error) {
         const message = getErrorMessage(error);
+
+        // Integration: Online adapter — record failure for in-run learning
+        const inRunLesson = recordInRunFailure(onlineAdapter, task, message, index);
+        appendEpisodeEvent(context, {
+          taskId: task.id,
+          kind: "observe",
+          summary: `In-run learning: ${inRunLesson.suggestedStrategy}`,
+          metadata: { adapter: "online", selector: inRunLesson.selector || "none" }
+        });
+
+        // Integration: Online adapter — check if next task should be adapted
+        const adaptation = suggestAdaptation(onlineAdapter, task);
+        if (adaptation) {
+          appendEpisodeEvent(context, {
+            taskId: task.id,
+            kind: "recover",
+            summary: `Online adaptation suggested: ${adaptation.strategy} — ${adaptation.reason}`,
+            metadata: { strategy: adaptation.strategy }
+          });
+        }
+
         const failureObservation = await observeAndRecord(context, task, `Failure observation: ${message}`);
         const failureVerification = createFailureVerification(context, task.id, message);
         recordVerification(context, failureVerification);
@@ -247,6 +307,25 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
     extractKnowledgeFromRun(context);
     await saveReflectionToFile(context.reflection);
     await saveRun(context);
+
+    // Integration: Episode store — save semantic memory for future retrieval
+    try {
+      const summary = generateEpisodeSummary(context);
+      const domain = extractDomainFromRun(context);
+      const embedding = await computeEmbedding(summary);
+      saveEpisode({
+        runId: context.runId,
+        goal: context.goal,
+        domain,
+        summary,
+        outcome: context.result?.success ? "success" : "failure",
+        taskCount: context.tasks.length,
+        replanCount: context.replanCount,
+        embedding
+      });
+    } catch {
+      // Episode saving is optional — never block run completion
+    }
 
     publishEvent({
       type: "run_complete",
