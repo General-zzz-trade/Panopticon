@@ -3,7 +3,7 @@ import {
   classifyGoalCategory,
   createEscalationDecisionTrace,
   decideEscalation
-} from "../escalation-policy";
+} from "../core/escalation-policy";
 import { summarizeRecentRuns } from "../llm/diagnoser";
 import { createReplannerFromEnv, validateLLMReplannerOutput } from "../llm/replanner";
 import { FailurePattern } from "../memory";
@@ -12,7 +12,7 @@ import {
   recordReplannerFallback,
   recordReplannerTimeout,
   recordRuleReplannerAttempt
-} from "../usage-ledger";
+} from "../observability/usage-ledger";
 import {
   AgentTask,
   EscalationPolicyDecision,

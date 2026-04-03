@@ -1,5 +1,5 @@
-import { takeScreenshot } from "./browser";
-import { AgentTask, RunArtifact, RunContext } from "./types";
+import { takeScreenshot } from "../browser";
+import { AgentTask, RunArtifact, RunContext } from "../types";
 
 export interface RetryPolicy {
   maxRetries: number;

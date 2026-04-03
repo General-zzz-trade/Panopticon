@@ -7,7 +7,7 @@ import {
   recordLLMTokenUsage,
   isTokenBudgetExceeded
 } from "./usage-ledger";
-import type { RunContext } from "./types";
+import type { RunContext } from "../types";
 
 function makeContext(overrides: Partial<RunContext> = {}): RunContext {
   return {

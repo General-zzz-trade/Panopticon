@@ -1,4 +1,4 @@
-import { AgentPolicy, EscalationPolicyMode } from "./types";
+import { AgentPolicy, EscalationPolicyMode } from "../types";
 
 export interface PolicyOverrides extends Partial<AgentPolicy> {}
 

@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { planTasks } from "./planner";
 import { createAbortError, delay, jsonResponse, withEnv, withMockedFetch } from "./provider-smoke.utils";
-import { createUsageLedger } from "./usage-ledger";
+import { createUsageLedger } from "./observability/usage-ledger";
+import { getDb } from "./db/client";
+import { initKnowledgeTable, upsertLesson } from "./knowledge/store";
 
 const providerUrl = "https://provider.test/planner";
 
@@ -156,6 +158,62 @@ test("planner smoke: low-quality output fallback", async () => {
       assert.equal(result.decisionTrace.llmInvocations, 1);
       assert.equal(usageLedger.plannerFallbacks, 1);
       assert.match(result.fallbackReason ?? "", /low-quality|low quality/i);
+    }
+  );
+});
+
+test("planner smoke: sends structured planning priors", async () => {
+  const usageLedger = createUsageLedger();
+  initKnowledgeTable();
+  getDb().prepare("DELETE FROM knowledge").run();
+  upsertLesson({
+    taskType: "click",
+    errorPattern: "selector moved",
+    recovery: "use visual_click",
+    domain: "example.com",
+    successCount: 2,
+    hypothesisKind: "selector_drift",
+    recoverySequence: ["use visual_click"]
+  });
+
+  let seenPlanningPriors = false;
+  let lastPlannerRequestBody = "";
+
+  await withPlannerEnv(
+    500,
+    async (_input, init) => {
+      const rawBody = String(init?.body ?? "");
+      lastPlannerRequestBody = rawBody;
+      seenPlanningPriors =
+        /planningPriors/.test(rawBody) &&
+        /click/.test(rawBody) &&
+        /use visual_click/.test(rawBody);
+
+      return jsonResponse({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                tasks: [
+                  { type: "open_page", payload: { url: "https://example.com" } },
+                  { type: "click", payload: { selector: "#login" } }
+                ]
+              })
+            }
+          }
+        ]
+      });
+    },
+    async () => {
+      const result = await planTasks('open "https://example.com" and click login', {
+        runId: "planner-smoke-priors",
+        mode: "llm",
+        maxLLMPlannerCalls: 1,
+        usageLedger
+      });
+
+      assert.equal(result.plannerUsed, "llm");
+      assert.equal(seenPlanningPriors, true, lastPlannerRequestBody);
     }
   );
 });

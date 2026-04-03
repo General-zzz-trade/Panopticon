@@ -1,13 +1,13 @@
-import { handleAssertTask } from "./handlers/assert-handler";
-import { handleBrowserTask, TaskExecutionOutput } from "./handlers/browser-handler";
-import { handleHttpTask } from "./handlers/http-handler";
-import { handleReadFileTask, handleWriteFileTask } from "./handlers/file-handler";
-import { handleShellTask } from "./handlers/shell-handler";
-import { handleVisionTask } from "./handlers/vision-handler";
-import { Logger } from "./logger";
+import { handleAssertTask } from "../handlers/assert-handler";
+import { handleBrowserTask, TaskExecutionOutput } from "../handlers/browser-handler";
+import { handleHttpTask } from "../handlers/http-handler";
+import { handleReadFileTask, handleWriteFileTask } from "../handlers/file-handler";
+import { handleShellTask } from "../handlers/shell-handler";
+import { handleVisionTask } from "../handlers/vision-handler";
+import { Logger } from "../logger";
 import { captureRetryFailureArtifact, getRetryPolicy, waitBeforeRetry } from "./retry";
-import { AgentTask, RunContext } from "./types";
-import { getActionHandler } from "./plugins/registry";
+import { AgentTask, RunContext } from "../types";
+import { getActionHandler } from "../plugins/registry";
 
 export async function executeTask(
   context: RunContext,
@@ -61,7 +61,7 @@ async function dispatchTask(
 ): Promise<TaskExecutionOutput> {
   // Check if human approval is required before executing this task
   if (context.policy?.approval?.enabled) {
-    const { requiresApproval, requestApproval } = await import("./approval/gate");
+    const { requiresApproval, requestApproval } = await import("../approval/gate");
     if (requiresApproval(task.type, task.payload as Record<string, unknown>, context.policy.approval)) {
       const approval = await requestApproval({
         runId: context.runId,

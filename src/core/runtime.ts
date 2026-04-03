@@ -1,14 +1,24 @@
+import { applyBeliefUpdates } from "../cognition/belief-updater";
 import { closeBrowserSession } from "../browser";
-import { executeTask } from "../executor";
+import { decideNextStep } from "../cognition/executive-controller";
+import { runRecoveryExperiments } from "../cognition/experiment-runner";
+import { generateFailureHypotheses } from "../cognition/hypothesis-engine";
+import { materializeObservation, observeEnvironment } from "../cognition/observation-engine";
+import { attachWorldStateRunId, createInitialWorldState, updateWorldState } from "../cognition/state-store";
+import { EpisodeEvent, VerificationResult } from "../cognition/types";
+import { executeTask } from "./executor";
 import { extractKnowledgeFromRun } from "../knowledge/extractor";
 import { findFailurePatterns, loadRecentRuns, saveRun } from "../memory";
-import { calculateRunMetrics } from "../metrics";
-import { resolvePolicy } from "../policy";
+import { calculateRunMetrics } from "../observability/run-metrics";
+import { resolvePolicy } from "./policy";
 import { PlannerMode, planTasks } from "../planner";
 import { replanTasks } from "../planner/replanner";
-import { reflectOnRun, saveReflectionToFile } from "../reflector";
+import { reflectOnRun, saveReflectionToFile } from "./reflector";
 import { stopApp } from "../shell";
-import { createUsageLedger, finalizeUsageLedger } from "../usage-ledger";
+import { createUsageLedger, finalizeUsageLedger } from "../observability/usage-ledger";
+import { verifyActionResult } from "../verifier/action-verifier";
+import { verifyGoalProgress } from "../verifier/goal-verifier";
+import { verifyStateResult } from "../verifier/state-verifier";
 import { AgentPolicy, PlannerTieBreakerPolicy, RunContext, RunLimits, TerminationReason } from "../types";
 import { publishEvent, closeEmitter } from "../streaming/event-bus";
 
@@ -64,9 +74,21 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
     llmReplannerInvocations: 0,
     llmReplannerTimeoutCount: 0,
     llmReplannerFallbackCount: 0,
+    worldState: attachWorldStateRunId(createInitialWorldState(goal), runId),
+    worldStateHistory: [],
+    observations: [],
+    hypotheses: [],
+    experimentResults: [],
+    beliefUpdates: [],
+    episodeEvents: [],
+    verificationResults: [],
+    cognitiveDecisions: [],
     limits,
     startedAt: new Date().toISOString()
   };
+  if (context.worldState) {
+    recordWorldState(context, context.worldState, "state_update", "run_initialized");
+  }
 
   const summaries: string[] = [];
   let index = 0;
@@ -76,62 +98,122 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
 
     while (index < context.tasks.length) {
       const task = context.tasks[index];
+      const beforeObservation = await observeAndRecord(context, task, "Pre-task observation");
+      recordWorldState(context, updateWorldState(context.worldState!, {
+        observation: beforeObservation
+      }), "task_observe", "pre_task_observation");
 
       try {
         const output = await executeTask(context, task);
         summaries.push(output.summary);
+        appendEpisodeEvent(context, {
+          taskId: task.id,
+          kind: "execute",
+          summary: output.summary,
+          metadata: {
+            attempts: task.attempts,
+            retries: task.retries
+          }
+        });
 
         if (output.artifacts) {
           context.artifacts.push(...output.artifacts);
         }
 
+        const afterObservation = await observeAndRecord(context, task, "Post-task observation");
+        const actionVerification = await verifyActionResult(context, task, afterObservation);
+        const stateVerification = await verifyStateResult(context, task, afterObservation);
+        const goalVerification = shouldRunGoalVerification(task, index, context.tasks.length)
+          ? await verifyGoalProgress(context, afterObservation)
+          : undefined;
+
+        recordVerification(context, actionVerification);
+        recordVerification(context, stateVerification);
+        if (goalVerification) {
+          recordVerification(context, goalVerification);
+        }
+
+        recordWorldState(context, updateWorldState(context.worldState!, {
+          observation: afterObservation,
+          verification: stateVerification.passed ? stateVerification : actionVerification,
+          taskType: task.type,
+          stateHints: output.stateHints
+        }), "task_observe", "post_task_verification");
+
+        const cognitiveDecision = decideNextStep({
+          task,
+          actionVerification,
+          stateVerification,
+          goalVerification,
+          replanCount: context.replanCount,
+          maxReplans: context.limits.maxReplansPerRun
+        });
+        recordDecision(context, task.id, cognitiveDecision.rationale, cognitiveDecision);
+
+        if (cognitiveDecision.nextAction === "abort") {
+          throw new Error(cognitiveDecision.rationale);
+        }
+
+        if (cognitiveDecision.nextAction === "reobserve") {
+          const refreshObservation = await observeAndRecord(context, task, "Refresh observation after goal verification");
+          recordWorldState(context, updateWorldState(context.worldState!, {
+            observation: refreshObservation,
+            taskType: task.type
+          }), "task_observe", "goal_reobserve");
+        }
+
+        if (cognitiveDecision.nextAction === "replan" || cognitiveDecision.nextAction === "retry_task") {
+          const recoveryReason = await analyzeRecoveryOptions(
+            context,
+            task,
+            `${task.type} verification requested recovery: ${cognitiveDecision.rationale}`
+          );
+          const handled = await handleReplan(
+            context,
+            task,
+            recoveryReason,
+            options,
+            summaries,
+            index
+          );
+          if (handled.nextIndex !== null) {
+            index = handled.nextIndex;
+            continue;
+          }
+        }
+
         index += 1;
       } catch (error) {
         const message = getErrorMessage(error);
-        const recentRuns = await loadRecentRuns(5);
-        const failurePatterns = await findFailurePatterns();
-        const decision = await replanTasks({
-          context,
+        const failureObservation = await observeAndRecord(context, task, `Failure observation: ${message}`);
+        const failureVerification = createFailureVerification(context, task.id, message);
+        recordVerification(context, failureVerification);
+        recordWorldState(context, updateWorldState(context.worldState!, {
+          observation: failureObservation,
+          verification: failureVerification,
+          taskType: task.type,
+          taskError: message
+        }), "task_observe", "failure_observation");
+        const cognitiveDecision = decideNextStep({
           task,
-          error: message,
-          recentRuns,
-          failurePatterns,
-          maxLLMReplannerCalls: options.maxLLMReplannerCalls ?? 1,
-          maxLLMReplannerTimeouts: options.maxLLMReplannerTimeouts ?? 1
+          stateVerification: failureVerification,
+          replanCount: context.replanCount,
+          maxReplans: context.limits.maxReplansPerRun
         });
+        recordDecision(context, task.id, cognitiveDecision.rationale, cognitiveDecision);
 
-        summaries.push(`Observed failure in ${task.id}: ${message}`);
-        summaries.push(`Replan decision: ${decision.reason}`);
-
-        publishEvent({
-          type: "replan",
-          runId: context.runId,
-          taskId: task.id,
-          timestamp: new Date().toISOString(),
-          message: decision.reason
-        });
-
-        if (decision.abort && decision.reason.includes("budget exceeded")) {
-          throw new Error(decision.reason);
-        }
-
-        if (decision.replaceWith.length > 0) {
-          context.replanCount += 1;
-          context.tasks.splice(index, 1, ...decision.replaceWith);
-          continue;
-        }
-
-        if (decision.insertTasks.length > 0) {
-          context.replanCount += 1;
-          context.insertedTaskCount += decision.insertTasks.length;
-          context.tasks.splice(index + 1, 0, ...decision.insertTasks);
-        }
-
-        if (decision.abort) {
+        if (cognitiveDecision.nextAction === "abort") {
           throw error;
         }
 
-        index += 1;
+        const recoveryReason = await analyzeRecoveryOptions(context, task, message);
+        const handled = await handleReplan(context, task, recoveryReason, options, summaries, index);
+        if (handled.nextIndex !== null) {
+          index = handled.nextIndex;
+          continue;
+        }
+
+        throw error;
       }
     }
 
@@ -217,4 +299,286 @@ function determineTerminationReason(message: string): TerminationReason {
   }
 
   return "task_failure";
+}
+
+async function handleReplan(
+  context: RunContext,
+  task: RunContext["tasks"][number],
+  errorMessage: string,
+  options: RunOptions,
+  summaries: string[],
+  index: number
+): Promise<{ nextIndex: number | null }> {
+  const recentRuns = await loadRecentRuns(5);
+  const failurePatterns = await findFailurePatterns();
+  const decision = await replanTasks({
+    context,
+    task,
+    error: errorMessage,
+    recentRuns,
+    failurePatterns,
+    maxLLMReplannerCalls: options.maxLLMReplannerCalls ?? 1,
+    maxLLMReplannerTimeouts: options.maxLLMReplannerTimeouts ?? 1
+  });
+
+  summaries.push(`Observed failure in ${task.id}: ${errorMessage}`);
+  summaries.push(`Replan decision: ${decision.reason}`);
+  appendEpisodeEvent(context, {
+    taskId: task.id,
+    kind: decision.abort ? "abort" : "recover",
+    summary: decision.reason,
+    metadata: {
+      insertTasks: decision.insertTasks.length,
+      replaceTasks: decision.replaceWith.length,
+      abort: decision.abort
+    }
+  });
+
+  publishEvent({
+    type: "replan",
+    runId: context.runId,
+    taskId: task.id,
+    timestamp: new Date().toISOString(),
+    message: decision.reason
+  });
+
+  if (decision.abort && decision.reason.includes("budget exceeded")) {
+    throw new Error(decision.reason);
+  }
+
+  if (decision.replaceWith.length > 0) {
+    context.replanCount += 1;
+    context.tasks.splice(index, 1, ...decision.replaceWith);
+    await observeAndRecord(context, task, "Recovery follow-up observation", "recovery_followup");
+    return { nextIndex: index };
+  }
+
+  if (decision.insertTasks.length > 0) {
+    context.replanCount += 1;
+    context.insertedTaskCount += decision.insertTasks.length;
+    context.tasks.splice(index + 1, 0, ...decision.insertTasks);
+    await observeAndRecord(context, task, "Recovery follow-up observation", "recovery_followup");
+  }
+
+  if (decision.abort) {
+    return { nextIndex: null };
+  }
+
+  return { nextIndex: index + 1 };
+}
+
+async function observeAndRecord(
+  context: RunContext,
+  task: RunContext["tasks"][number],
+  summary: string,
+  source: "task_observe" | "recovery_followup" = "task_observe"
+) {
+  const observation = await observeEnvironment(context, task);
+  observation.source = source;
+  context.observations ??= [];
+  context.observations.push(observation);
+  context.latestObservation = observation;
+  appendEpisodeEvent(context, {
+    taskId: task.id,
+    kind: "observe",
+    summary,
+    observationId: observation.id,
+    metadata: {
+      confidence: observation.confidence,
+      anomalyCount: observation.anomalies.length
+    }
+  });
+  return observation;
+}
+
+function recordVerification(context: RunContext, verification: VerificationResult): void {
+  context.verificationResults ??= [];
+  context.verificationResults.push(verification);
+  appendEpisodeEvent(context, {
+    taskId: verification.taskId,
+    kind: "verify",
+    summary: `${verification.verifier} verification ${verification.passed ? "passed" : "failed"}: ${verification.rationale}`,
+    verificationPassed: verification.passed,
+    metadata: {
+      confidence: verification.confidence
+    }
+  });
+}
+
+function recordDecision(
+  context: RunContext,
+  taskId: string | undefined,
+  summary: string,
+  decision: RunContext["cognitiveDecisions"][number]
+): void {
+  context.cognitiveDecisions ??= [];
+  context.cognitiveDecisions.push(decision);
+  appendEpisodeEvent(context, {
+    taskId,
+    kind: decision.nextAction === "abort" ? "abort" : decision.nextAction === "replan" ? "recover" : "verify",
+    summary,
+    metadata: {
+      nextAction: decision.nextAction,
+      confidence: decision.confidence
+    }
+  });
+}
+
+function appendEpisodeEvent(
+  context: RunContext,
+  input: Omit<EpisodeEvent, "id" | "runId" | "timestamp">
+): void {
+  context.episodeEvents ??= [];
+  context.episodeEvents.push({
+    id: `evt-${context.runId}-${context.episodeEvents.length + 1}`,
+    runId: context.runId,
+    timestamp: new Date().toISOString(),
+    ...input
+  });
+}
+
+function createFailureVerification(
+  context: RunContext,
+  taskId: string,
+  message: string
+): VerificationResult {
+  return {
+    runId: context.runId,
+    taskId,
+    verifier: "state",
+    passed: false,
+    confidence: 0.95,
+    rationale: message,
+    evidence: [`taskFailure=${message}`]
+  };
+}
+
+function shouldRunGoalVerification(
+  task: RunContext["tasks"][number],
+  index: number,
+  totalTasks: number
+): boolean {
+  return task.type === "assert_text" || task.type === "screenshot" || task.type === "stop_app" || index === totalTasks - 1;
+}
+
+async function analyzeRecoveryOptions(
+  context: RunContext,
+  task: RunContext["tasks"][number],
+  failureReason: string
+): Promise<string> {
+  const hypotheses = generateFailureHypotheses({
+    context,
+    task,
+    failureReason
+  });
+  appendEpisodeEvent(context, {
+    taskId: task.id,
+    kind: "hypothesize",
+    summary: `Generated ${hypotheses.length} recovery hypothesis(es). Top=${hypotheses[0]?.kind ?? "none"}`,
+    metadata: {
+      topHypothesis: hypotheses[0]?.kind ?? "none",
+      topConfidence: hypotheses[0]?.confidence ?? 0
+    }
+  });
+
+  const experimentResults = await runRecoveryExperiments({
+    context,
+    task,
+    hypotheses
+  });
+  context.experimentResults ??= [];
+  context.experimentResults.push(...experimentResults);
+  applyExperimentOutcomes(context, task, experimentResults);
+  for (const result of experimentResults) {
+    appendEpisodeEvent(context, {
+      taskId: task.id,
+      kind: "experiment",
+      summary: `${result.outcome.toUpperCase()} ${result.experiment}`,
+      metadata: {
+        hypothesisId: result.hypothesisId,
+        confidenceDelta: result.confidenceDelta,
+        action: result.performedAction ?? "none"
+      }
+    });
+  }
+
+  const belief = applyBeliefUpdates({
+    runId: context.runId,
+    taskId: task.id,
+    hypotheses,
+    experimentResults
+  });
+  context.beliefUpdates ??= [];
+  context.beliefUpdates.push(...belief.beliefUpdates);
+  context.hypotheses ??= [];
+  context.hypotheses.push(...belief.updatedHypotheses);
+
+  const topHypothesis = belief.updatedHypotheses[0] ?? hypotheses[0];
+  if (!topHypothesis) {
+    return failureReason;
+  }
+
+  appendEpisodeEvent(context, {
+    taskId: task.id,
+    kind: "recover",
+    summary: `Top recovery hypothesis is ${topHypothesis.kind} (${topHypothesis.confidence.toFixed(2)}).`,
+    metadata: {
+      topHypothesis: topHypothesis.kind,
+      topConfidence: topHypothesis.confidence
+    }
+  });
+
+  return `${failureReason} Top hypothesis=${topHypothesis.kind} confidence=${topHypothesis.confidence.toFixed(2)}. ${topHypothesis.recoveryHint}`;
+}
+
+function applyExperimentOutcomes(
+  context: RunContext,
+  task: RunContext["tasks"][number],
+  experimentResults: NonNullable<RunContext["experimentResults"]>
+): void {
+  for (const result of experimentResults) {
+    if (result.observationPatch) {
+      const mergedObservation = materializeObservation({
+        runId: context.runId,
+        taskId: task.id,
+        source: "experiment_refresh",
+        pageUrl: result.observationPatch.pageUrl ?? context.latestObservation?.pageUrl ?? context.worldState?.pageUrl,
+        title: result.observationPatch.title ?? context.latestObservation?.title,
+        visibleText: result.observationPatch.visibleText ?? context.latestObservation?.visibleText,
+        actionableElements: context.latestObservation?.actionableElements,
+        appStateGuess: result.observationPatch.appStateGuess ?? context.latestObservation?.appStateGuess,
+        anomalies: result.observationPatch.anomalies ?? context.latestObservation?.anomalies ?? [],
+        confidence: result.observationPatch.confidence ?? context.latestObservation?.confidence ?? 0.55
+      });
+      context.latestObservation = mergedObservation;
+      context.observations ??= [];
+      context.observations.push(mergedObservation);
+      recordWorldState(context, updateWorldState(context.worldState!, {
+        observation: mergedObservation,
+        taskType: task.type,
+        stateHints: result.stateHints
+      }), "experiment_refresh", result.experiment);
+    } else if (result.stateHints && result.stateHints.length > 0) {
+      recordWorldState(context, updateWorldState(context.worldState!, {
+        taskType: task.type,
+        stateHints: result.stateHints
+      }), "state_update", result.experiment);
+    }
+  }
+}
+
+function recordWorldState(
+  context: RunContext,
+  state: NonNullable<RunContext["worldState"]>,
+  source: NonNullable<NonNullable<RunContext["worldState"]>["source"]>,
+  reason: string
+): void {
+  const snapshot = {
+    ...state,
+    source,
+    reason
+  };
+  context.worldState = snapshot;
+  context.worldStateHistory ??= [];
+  context.worldStateHistory.push(snapshot);
 }

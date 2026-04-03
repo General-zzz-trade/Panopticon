@@ -1,4 +1,4 @@
-import { FailurePattern } from "./memory";
+import { FailurePattern } from "../memory";
 import {
   EscalationDecisionTrace,
   EscalationPolicyDecision,
@@ -10,7 +10,7 @@ import {
   PlanQualitySummary,
   ProviderHealth,
   UsageLedger
-} from "./types";
+} from "../types";
 
 export interface EscalationPolicyInput {
   stage: EscalationStage;

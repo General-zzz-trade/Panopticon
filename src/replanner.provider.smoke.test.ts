@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { replanTasks } from "./planner/replanner";
 import { createAbortError, delay, jsonResponse, withEnv, withMockedFetch } from "./provider-smoke.utils";
-import { createUsageLedger } from "./usage-ledger";
+import { createUsageLedger } from "./observability/usage-ledger";
 import { AgentTask, RunContext } from "./types";
 
 const providerUrl = "https://provider.test/replanner";

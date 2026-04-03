@@ -9,7 +9,7 @@
  * Falls back to sequential execution when tasks have no dependency info.
  */
 
-import { executeTask } from "../executor";
+import { executeTask } from "./executor";
 import type { AgentTask, RunContext } from "../types";
 import type { TaskExecutionOutput } from "../handlers/browser-handler";
 

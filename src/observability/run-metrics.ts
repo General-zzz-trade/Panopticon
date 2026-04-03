@@ -1,4 +1,4 @@
-import { RunContext, RunMetrics } from "./types";
+import { RunContext, RunMetrics } from "../types";
 
 export function calculateRunMetrics(run: RunContext): RunMetrics {
   const totalTasks = run.tasks.length;

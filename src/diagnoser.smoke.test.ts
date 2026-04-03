@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { reflectOnRun } from "./reflector";
+import { reflectOnRun } from "./core/reflector";
 import { LLMDiagnoser, LLMDiagnoserOutput } from "./llm/diagnoser";
 import { RunContext } from "./types";
-import { createUsageLedger } from "./usage-ledger";
+import { createUsageLedger } from "./observability/usage-ledger";
 
 const MOCK_CONFIG = { provider: "mock", model: "mock", timeoutMs: 1000, maxTokens: 100, temperature: 0 };
 

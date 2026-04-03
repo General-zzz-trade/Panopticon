@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { replanTasks } from "./planner/replanner";
 import { RunContext, AgentTask } from "./types";
-import { createUsageLedger } from "./usage-ledger";
+import { createUsageLedger } from "./observability/usage-ledger";
+import { getDb } from "./db/client";
+import { initKnowledgeTable, upsertLesson } from "./knowledge/store";
 
 function baseContext(): RunContext {
   return {
@@ -63,4 +65,82 @@ test("replanner smoke: low-quality fallback", async () => {
   const result = await replanTasks({ context, task: clickTask(), error: "visible timeout", recentRuns: [], failurePatterns: [{ taskType: "click", count: 4, latestMessages: ["timeout"] }], maxLLMReplannerCalls: 1, maxLLMReplannerTimeouts: 1 });
   assert.ok(result.reason.includes("replanner"));
   delete process.env.LLM_REPLANNER_PROVIDER;
+});
+
+test("replanner smoke: top hypothesis drives rule strategy", async () => {
+  const context = baseContext();
+  context.hypotheses = [
+    {
+      id: "hyp-1",
+      taskId: "t1",
+      kind: "selector_drift",
+      explanation: "Selector likely drifted.",
+      confidence: 0.91,
+      suggestedExperiments: ["check selector presence"],
+      recoveryHint: "Prefer visual fallback."
+    }
+  ];
+  const result = await replanTasks({
+    context,
+    task: clickTask(),
+    error: "click failed",
+    recentRuns: [],
+    failurePatterns: [],
+    maxLLMReplannerCalls: 0,
+    maxLLMReplannerTimeouts: 1
+  });
+  assert.equal(result.abort, false);
+  assert.equal(result.insertTasks[0]?.type, "visual_click");
+});
+
+test("replanner smoke: procedural prior drives rule strategy", async () => {
+  initKnowledgeTable();
+  getDb().prepare("DELETE FROM knowledge").run();
+  upsertLesson({
+    taskType: "click",
+    errorPattern: "selector not found",
+    domain: "app.example.com",
+    recovery: "use visual_click",
+    successCount: 1,
+    hypothesisKind: "selector_drift",
+    recoverySequence: ["use visual_click"]
+  });
+
+  const context = baseContext();
+  context.worldState = {
+    runId: context.runId,
+    timestamp: new Date().toISOString(),
+    appState: "ready",
+    pageUrl: "https://app.example.com/dashboard",
+    uncertaintyScore: 0.1,
+    facts: [],
+    source: "state_update",
+    reason: "test"
+  };
+  context.tasks = [clickTask()];
+  context.hypotheses = [
+    {
+      id: "hyp-prior",
+      taskId: "t1",
+      kind: "selector_drift",
+      explanation: "Selector likely drifted.",
+      confidence: 0.88,
+      suggestedExperiments: ["probe selector"],
+      recoveryHint: "Use prior visual fallback."
+    }
+  ];
+
+  const result = await replanTasks({
+    context,
+    task: context.tasks[0],
+    error: "selector not found",
+    recentRuns: [],
+    failurePatterns: [],
+    maxLLMReplannerCalls: 0,
+    maxLLMReplannerTimeouts: 1
+  });
+
+  assert.equal(result.abort, false);
+  assert.equal(result.insertTasks[0]?.type, "visual_click");
+  assert.match(result.reason, /procedural prior/i);
 });
