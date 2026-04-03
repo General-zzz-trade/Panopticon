@@ -234,7 +234,8 @@ test("planner: conservative mode + prior LLM call → no more LLM", () => {
       ruleReplannerAttempts: 0, llmReplannerCalls: 0,
       llmDiagnoserCalls: 0, plannerTimeouts: 0, replannerTimeouts: 0,
       diagnoserTimeouts: 0, plannerFallbacks: 0, replannerFallbacks: 0,
-      totalLLMInteractions: 1
+      totalLLMInteractions: 1,
+      totalInputTokens: 0, totalOutputTokens: 0
     }
   }));
   assert.equal(decision.useLLMPlanner, false);

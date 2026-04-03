@@ -66,7 +66,7 @@ export function generateFailureHypotheses(input: {
         hypotheses.push(createHypothesis(
           task.id,
           "learned_pattern",
-          lesson.confidence ?? 0.55,
+          Math.min(0.85, 0.5 + lesson.successCount * 0.05),
           `Learned from prior failure: ${lesson.errorPattern}`,
           ["apply learned recovery strategy"],
           lesson.recovery
