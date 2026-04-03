@@ -104,3 +104,43 @@ test("replan when state verification fails and budget available", () => {
   });
   assert.equal(result.nextAction, "replan");
 });
+
+test("replan confidence is higher when budget is mostly unused", () => {
+  const result = decideNextStep({
+    task: makeTask(),
+    actionVerification: makeVerification({ verifier: "action", passed: false }),
+    replanCount: 0,
+    maxReplans: 5
+  });
+  assert.equal(result.nextAction, "replan");
+  assert.ok(result.confidence >= 0.75);
+});
+
+test("replan confidence is lower when budget is nearly exhausted", () => {
+  const result = decideNextStep({
+    task: makeTask(),
+    actionVerification: makeVerification({ verifier: "action", passed: false }),
+    replanCount: 4,
+    maxReplans: 5
+  });
+  assert.equal(result.nextAction, "replan");
+  assert.ok(result.confidence <= 0.75);
+});
+
+test("abort confidence scales with exhaustion", () => {
+  const lowExhaustion = decideNextStep({
+    task: makeTask({ retries: 1 }),
+    actionVerification: makeVerification({ verifier: "action", passed: false }),
+    replanCount: 3,
+    maxReplans: 3
+  });
+  const highExhaustion = decideNextStep({
+    task: makeTask({ retries: 3, attempts: 4 }),
+    actionVerification: makeVerification({ verifier: "action", passed: false }),
+    replanCount: 5,
+    maxReplans: 5
+  });
+  assert.equal(lowExhaustion.nextAction, "abort");
+  assert.equal(highExhaustion.nextAction, "abort");
+  assert.ok(highExhaustion.confidence >= lowExhaustion.confidence);
+});
