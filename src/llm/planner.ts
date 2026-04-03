@@ -1,7 +1,7 @@
-import { FailurePattern } from "./memory";
-import { RecentRunSummary } from "./llm-diagnoser";
-import { AgentAction } from "./types";
-import { TaskBlueprint } from "./planner/task-id";
+import { FailurePattern } from "../memory";
+import { RecentRunSummary } from "./diagnoser";
+import { AgentAction } from "../types";
+import { TaskBlueprint } from "../planner/task-id";
 import {
   LLMProviderConfig,
   callOpenAICompatible,
@@ -9,8 +9,8 @@ import {
   readProviderConfig,
   safeJsonParse,
   unwrapTasksPayload
-} from "./llm/provider";
-import { buildKnowledgeContext, buildPlanningPriors, extractDomainFromGoal } from "./knowledge/planner-context";
+} from "./provider";
+import { buildKnowledgeContext, buildPlanningPriors, extractDomainFromGoal } from "../knowledge/planner-context";
 
 export type LLMPlannerConfig = LLMProviderConfig;
 

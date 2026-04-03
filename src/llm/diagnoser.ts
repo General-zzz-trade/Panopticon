@@ -1,12 +1,12 @@
-import { FailurePattern } from "./memory";
-import { AgentTask, RunMetrics, RunContext, TerminationReason } from "./types";
+import { FailurePattern } from "../memory";
+import { AgentTask, RunMetrics, RunContext, TerminationReason } from "../types";
 import {
   LLMProviderConfig,
   callOpenAICompatible,
   callAnthropic,
   readProviderConfig,
   safeJsonParse
-} from "./llm/provider";
+} from "./provider";
 
 export type LLMDiagnoserConfig = LLMProviderConfig;
 

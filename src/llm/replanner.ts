@@ -1,7 +1,7 @@
-import { FailurePattern } from "./memory";
-import { RecentRunSummary } from "./llm-diagnoser";
-import { AgentAction, AgentTask } from "./types";
-import { TaskBlueprint } from "./planner/task-id";
+import { FailurePattern } from "../memory";
+import { RecentRunSummary } from "./diagnoser";
+import { AgentAction, AgentTask } from "../types";
+import { TaskBlueprint } from "../planner/task-id";
 import {
   LLMProviderConfig,
   callOpenAICompatible,
@@ -9,7 +9,7 @@ import {
   readProviderConfig,
   safeJsonParse,
   unwrapTasksPayload
-} from "./llm/provider";
+} from "./provider";
 
 export type LLMReplannerConfig = LLMProviderConfig;
 

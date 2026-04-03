@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { reflectOnRun } from "./reflector";
-import { LLMDiagnoser, LLMDiagnoserOutput } from "./llm-diagnoser";
+import { LLMDiagnoser, LLMDiagnoserOutput } from "./llm/diagnoser";
 import { RunContext } from "./types";
 import { createUsageLedger } from "./usage-ledger";
 

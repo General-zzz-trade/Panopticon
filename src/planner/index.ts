@@ -4,8 +4,8 @@ import {
   createEscalationDecisionTrace,
   decideEscalation
 } from "../escalation-policy";
-import { createPlannerFromEnv, validateLLMPlannerOutput } from "../llm-planner";
-import { summarizeRecentRuns } from "../llm-diagnoser";
+import { createPlannerFromEnv, validateLLMPlannerOutput } from "../llm/planner";
+import { summarizeRecentRuns } from "../llm/diagnoser";
 import { findFailurePatterns, loadRecentRuns } from "../memory";
 import {
   createUsageLedger,
@@ -20,6 +20,7 @@ import {
   EscalationPolicyDecision,
   GoalCategory,
   PlanQualitySummary,
+  PriorAwarePlanningTrace,
   PlannerDecisionTrace,
   PlannerTieBreakerPolicy,
   ProviderCapabilityHealth,
@@ -31,6 +32,7 @@ import { matchTemplatePlan } from "./templates";
 import { TaskBlueprint } from "./task-id";
 import { validateAndMaterializeTasks } from "./validation";
 import { planFromKnowledge } from "./knowledge-template-planner";
+import { applyPlanningPriors } from "./prior-aware-planner";
 
 export type PlannerMode = "auto" | "template" | "regex" | "llm";
 type ConcretePlanner = "template" | "regex" | "llm";
@@ -60,6 +62,7 @@ interface PlanCandidate {
   triggerReason?: string;
   timeout: boolean;
   fallbackReason?: string;
+  priorAwarePlanning?: PriorAwarePlanningTrace;
 }
 
 export async function planTasks(goal: string, options: PlanTasksOptions): Promise<PlanTasksResult> {
@@ -101,7 +104,7 @@ export async function planTasks(goal: string, options: PlanTasksOptions): Promis
 
   if (mode === "template") {
     recordRulePlannerAttempt({ usageLedger });
-    const candidate = buildCandidate("template", trimmedGoal, materializePlan(options.runId, matchTemplatePlan(trimmedGoal)));
+    const candidate = buildRuleCandidate("template", trimmedGoal, options.runId, matchTemplatePlan(trimmedGoal));
     const escalationTrace = createEscalationDecisionTrace({
       stage: "planner",
       goalCategory,
@@ -119,7 +122,7 @@ export async function planTasks(goal: string, options: PlanTasksOptions): Promis
 
   if (mode === "regex") {
     recordRulePlannerAttempt({ usageLedger });
-    const candidate = buildCandidate("regex", trimmedGoal, materializePlan(options.runId, createRegexPlan(trimmedGoal)));
+    const candidate = buildRuleCandidate("regex", trimmedGoal, options.runId, createRegexPlan(trimmedGoal));
     const escalationTrace = createEscalationDecisionTrace({
       stage: "planner",
       goalCategory,
@@ -142,12 +145,13 @@ export async function planTasks(goal: string, options: PlanTasksOptions): Promis
   // Try knowledge-template planner first — learned from past runs
   const knowledgeResult = planFromKnowledge(trimmedGoal);
   if (knowledgeResult.matched && knowledgeResult.confidence >= 0.6 && knowledgeResult.blueprints.length > 0) {
-    const knowledgeTasks = materializePlan(options.runId, knowledgeResult.blueprints);
+      const knowledgeTasks = materializePlan(options.runId, knowledgeResult.blueprints);
     if (knowledgeTasks.length > 0) {
-      const knowledgeCandidate = buildCandidate(
+      const knowledgeCandidate = buildRuleCandidate(
         "template",
         trimmedGoal,
-        knowledgeTasks,
+        options.runId,
+        knowledgeResult.blueprints,
         `Knowledge template matched (confidence: ${Math.round(knowledgeResult.confidence * 100)}%, pattern: "${knowledgeResult.templatePattern}")`
       );
       if (knowledgeCandidate.valid && knowledgeCandidate.qualitySummary.quality !== "low") {
@@ -170,19 +174,11 @@ export async function planTasks(goal: string, options: PlanTasksOptions): Promis
 
   const evaluatedCandidates: PlanCandidate[] = [];
   recordRulePlannerAttempt({ usageLedger });
-  const templateCandidate = buildCandidate(
-    "template",
-    trimmedGoal,
-    materializePlan(options.runId, matchTemplatePlan(trimmedGoal))
-  );
+  const templateCandidate = buildRuleCandidate("template", trimmedGoal, options.runId, matchTemplatePlan(trimmedGoal));
   evaluatedCandidates.push(templateCandidate);
 
   recordRulePlannerAttempt({ usageLedger });
-  const regexCandidate = buildCandidate(
-    "regex",
-    trimmedGoal,
-    materializePlan(options.runId, createRegexPlan(trimmedGoal))
-  );
+  const regexCandidate = buildRuleCandidate("regex", trimmedGoal, options.runId, createRegexPlan(trimmedGoal));
   evaluatedCandidates.push(regexCandidate);
 
   const bestRuleCandidate = chooseStableFallback(evaluatedCandidates, tieBreakerPolicy);
@@ -402,6 +398,31 @@ function buildCandidate(
   };
 }
 
+function buildRuleCandidate(
+  planner: "template" | "regex",
+  goal: string,
+  runId: string,
+  blueprints: TaskBlueprint[] | null,
+  triggerReason?: string
+): PlanCandidate {
+  const baseBlueprints = blueprints ?? [];
+  const priorAware = applyPlanningPriors(goal, baseBlueprints);
+  const originalTasks = materializePlan(runId, baseBlueprints);
+  const rewrittenTasks = materializePlan(runId, priorAware.blueprints);
+  const combinedTriggerReason = [triggerReason, ...priorAware.notes].filter(Boolean).join(" | ") || undefined;
+  const candidate = buildCandidate(planner, goal, rewrittenTasks, combinedTriggerReason);
+  const originalQuality = evaluateTaskSequenceQuality(goal, originalTasks);
+  candidate.priorAwarePlanning = {
+    applied: priorAware.notes.length > 0,
+    notes: priorAware.notes,
+    matchedPriors: priorAware.matchedPriors,
+    originalTaskCount: originalTasks.length,
+    rewrittenTaskCount: rewrittenTasks.length,
+    qualityDelta: candidate.qualitySummary.score - originalQuality.score
+  };
+  return candidate;
+}
+
 function invalidCandidate(
   planner: ConcretePlanner,
   issue: string,
@@ -495,7 +516,8 @@ function finalizeCandidate(
     valid: candidate.valid,
     triggerReason: candidate.triggerReason,
     timeout: candidate.timeout,
-    fallbackReason: candidate.fallbackReason
+    fallbackReason: candidate.fallbackReason,
+    priorAwarePlanning: candidate.priorAwarePlanning
   }));
 
   return {
@@ -517,7 +539,8 @@ function finalizeCandidate(
       escalationDecision: escalationTrace,
       llmInvocations,
       llmUsageCap,
-      timeoutCount
+      timeoutCount,
+      chosenPriorAwarePlanning: chosen.priorAwarePlanning
     }
   };
 }
@@ -661,7 +684,8 @@ function emptyPlanResult(
       escalationDecision: escalationTrace,
       llmInvocations,
       llmUsageCap,
-      timeoutCount
+      timeoutCount,
+      chosenPriorAwarePlanning: undefined
     }
   };
 }

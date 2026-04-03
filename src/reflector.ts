@@ -12,7 +12,7 @@ import {
   LLMDiagnoser,
   summarizeRecentRuns,
   validateLLMDiagnoserOutput
-} from "./llm-diagnoser";
+} from "./llm/diagnoser";
 import { findFailurePatterns, loadRecentRuns } from "./memory";
 import { recordDiagnoserTimeout, recordLLMDiagnoserCall } from "./usage-ledger";
 import { PlanQualitySummary, ProviderCapabilityHealth, ReflectionResult, RunContext } from "./types";
