@@ -12,7 +12,9 @@ export function createUsageLedger(): UsageLedger {
     diagnoserTimeouts: 0,
     plannerFallbacks: 0,
     replannerFallbacks: 0,
-    totalLLMInteractions: 0
+    totalLLMInteractions: 0,
+    totalInputTokens: 0,
+    totalOutputTokens: 0
   };
 }
 
@@ -61,6 +63,25 @@ export function recordPlannerFallback(context: RunContext | { usageLedger?: Usag
 
 export function recordReplannerFallback(context: RunContext | { usageLedger?: UsageLedger }): void {
   ensureLedger(context).replannerFallbacks += 1;
+}
+
+export function recordLLMTokenUsage(
+  context: RunContext | { usageLedger?: UsageLedger },
+  inputTokens: number,
+  outputTokens: number
+): void {
+  const ledger = ensureLedger(context);
+  ledger.totalInputTokens += inputTokens;
+  ledger.totalOutputTokens += outputTokens;
+}
+
+export function isTokenBudgetExceeded(
+  context: RunContext | { usageLedger?: UsageLedger },
+  maxTokens: number
+): boolean {
+  if (maxTokens <= 0) return false;
+  const ledger = ensureLedger(context);
+  return (ledger.totalInputTokens + ledger.totalOutputTokens) > maxTokens;
 }
 
 function ensureLedger(context: RunContext | { usageLedger?: UsageLedger }): UsageLedger {

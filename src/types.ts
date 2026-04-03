@@ -1,5 +1,15 @@
 import type { BrowserSession } from "./browser";
 import type { AppProcessHandle } from "./shell";
+import type {
+  AgentObservation,
+  BeliefUpdate,
+  CognitiveDecision,
+  ExperimentResult,
+  EpisodeEvent,
+  FailureHypothesis,
+  VerificationResult,
+  WorldStateSnapshot
+} from "./cognition/types";
 
 export interface ScreencastSession {
   stop: () => Promise<void>;
@@ -107,6 +117,24 @@ export interface PlannerCandidateTrace {
   triggerReason?: string;
   timeout: boolean;
   fallbackReason?: string;
+  priorAwarePlanning?: PriorAwarePlanningTrace;
+}
+
+export interface PlanningPriorHit {
+  taskType: string;
+  recovery: string;
+  hypothesisKind?: string;
+  domain?: string;
+  recoverySequence?: string[];
+}
+
+export interface PriorAwarePlanningTrace {
+  applied: boolean;
+  notes: string[];
+  matchedPriors: PlanningPriorHit[];
+  originalTaskCount: number;
+  rewrittenTaskCount: number;
+  qualityDelta?: number;
 }
 
 export interface ProviderCapabilityHealth {
@@ -168,6 +196,7 @@ export interface PlannerDecisionTrace {
   llmInvocations: number;
   llmUsageCap: number;
   timeoutCount: number;
+  chosenPriorAwarePlanning?: PriorAwarePlanningTrace;
 }
 
 export interface PlannerTieBreakerPolicy {
@@ -201,6 +230,8 @@ export interface UsageLedger {
   plannerFallbacks: number;
   replannerFallbacks: number;
   totalLLMInteractions: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
 }
 
 export interface RunMetrics {
@@ -241,6 +272,16 @@ export interface RunContext {
   browserSession?: BrowserSession;
   screencastSession?: ScreencastSession;
   appProcess?: AppProcessHandle;
+  worldState?: WorldStateSnapshot;
+  worldStateHistory?: WorldStateSnapshot[];
+  observations?: AgentObservation[];
+  latestObservation?: AgentObservation;
+  hypotheses?: FailureHypothesis[];
+  experimentResults?: ExperimentResult[];
+  beliefUpdates?: BeliefUpdate[];
+  episodeEvents?: EpisodeEvent[];
+  verificationResults?: VerificationResult[];
+  cognitiveDecisions?: CognitiveDecision[];
   metrics?: RunMetrics;
   terminationReason?: TerminationReason;
   result?: RunResult;
