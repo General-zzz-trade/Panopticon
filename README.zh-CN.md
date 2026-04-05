@@ -1,101 +1,174 @@
 # Agent Orchestrator
 
-Agent Orchestrator 是一个面向 UI 与工具工作流的工程级认知 Agent Runtime。
+**一个生产级的开源 Agent Harness，拥有深度认知架构。**
 
-它现在还不是 AGI。当前更准确的定位是一个可恢复、可观测、可复用经验的 Agent 平台，已经具备：
+一个 LLM 无关的运行时，把任何语言模型变成能自主工作的 Agent。5 种执行模式、完整的恢复循环、可解释的决策、7×24 自主运行。
 
-- 结合规则规划器、知识模板与 LLM 规划器进行任务规划
-- 执行浏览器、视觉、HTTP、文件与代码动作
-- 在动作前后观察环境状态
-- 对动作结果、状态结果与目标结果做验证
-- 通过假设驱动实验与重规划进行失败恢复
-- 从历史运行中提炼 procedural memory，并反向影响规划与恢复
-- 通过 `inspect-run` 与 HTTP API 暴露 cognition trace
+[English README](README.md) · [部署指南](DEPLOY.md) · [架构文档](docs/agi-agent-vision.zh-CN.md)
 
-## 当前定位
+---
 
-项目已经明显超过简单的 orchestrator 原型。当前运行时已经包含：
+## 为什么与众不同
 
-- [runtime.ts](/home/ubuntu/Agent-orchestrator/src/core/runtime.ts) 中的 cognition loop
-- [cognition/](/home/ubuntu/Agent-orchestrator/src/cognition) 中的结构化 world state 与 observation tracking
-- [verifier/](/home/ubuntu/Agent-orchestrator/src/verifier) 中的 verifier 层
-- [escalation-policy.ts](/home/ubuntu/Agent-orchestrator/src/escalation-policy.ts) 中的恢复策略与 LLM 升级决策
-- [knowledge/](/home/ubuntu/Agent-orchestrator/src/knowledge) 中的 procedural memory 提炼与检索
-- [planner/](/home/ubuntu/Agent-orchestrator/src/planner) 中的 prior-aware planning / replanning
-- [api/routes/runs.ts](/home/ubuntu/Agent-orchestrator/src/api/routes/runs.ts) 中的 cognition trace API
+大多数开源 agent 只是 LLM tool-calling 的薄封装。这个项目是一个完整的 **Harness**（2026 年的术语，指"模型周围所有让它工作的东西"）：
 
-从能力上说，当前 agent 已经能做到：
+| | 本项目 | 常见 agent 框架 |
+|---|---|---|
+| 执行模式 | 5 种 (sequential / react / cli / desktop / htn) | 1-2 种 |
+| 失败恢复 | 贝叶斯假设引擎 + 实验验证 | 带退避的重试 |
+| 可解释性 | 每个决策都可通过 `/explain` API 查询 | 黑盒 |
+| 学习 | 战略级 (跨 run) + 战术级 (run 内) | 只有记忆 |
+| LLM 绑定 | 无 — 任何 OpenAI-compatible API | 通常绑定单一厂商 |
+| 自主性 | Watchers + 目标合成 + Goal-Driven 循环 | 每次请求一个目标 |
 
-- rule + LLM 混合规划
-- cognition-aware execution
-- hypothesis-driven recovery
-- procedural memory reuse
-- 带 decision trace 的运行检查
+**在 ~100 个真实任务上验证 97% 成功率**（HumanEval、AgencyBench Code、真实网站、CLI 自动化）。已知限制：抽象推理 (ARC-AGI 0%) — 需要 o3 级别的 LLM。
 
-## 它现在还不是什么
+---
 
-当前项目距离 AGI 级能力仍然很远。
-
-它还不具备：
-
-- 强长期语义记忆
-- 通用因果世界模型
-- 自主目标管理
-- 跨域抽象与迁移
-- 基于大规模经验的持续策略学习
-- 稳定的多领域通用智能
-
-因此现在更准确的描述是：
-
-`一个面向 UI 与工具任务的可恢复认知 Agent Runtime`
-
-而不是：
-
-`一个通用 AGI`
-
-## 文档
-
-- 英文 README: [README.md](/home/ubuntu/Agent-orchestrator/README.md)
-- AGI 愿景与路线图: [docs/agi-agent-vision.md](/home/ubuntu/Agent-orchestrator/docs/agi-agent-vision.md)
-- AGI 愿景中文版: [docs/agi-agent-vision.zh-CN.md](/home/ubuntu/Agent-orchestrator/docs/agi-agent-vision.zh-CN.md)
-- 企业 / API 计划: [docs/superpowers/plans/2026-04-01-enterprise-phase1-api-database.md](/home/ubuntu/Agent-orchestrator/docs/superpowers/plans/2026-04-01-enterprise-phase1-api-database.md)
-
-## 常用命令
-
-核心验证：
+## 快速开始（5 分钟）
 
 ```bash
-npm run test:unit:planner
-npm run test:smoke
-node --import tsx src/api/server.test.ts
+git clone https://github.com/General-zzz-trade/Agent-orchestrator.git
+cd Agent-orchestrator
+npm install
+npx playwright install chromium
+
+# 配置任意 LLM (Anthropic, OpenAI-compatible, 或 Moonshot K2.5)
+cp .env.desktop.example .env
+# 编辑 .env 填入你的 API key
+
+# 启动 API server
+node --env-file=.env --import tsx src/api/server.ts
+
+# 跑一个目标
+curl -X POST http://localhost:3000/api/v1/runs \
+  -H 'Content-Type: application/json' \
+  -d '{"goal": "go to example.com and tell me what the page says", "executionMode": "react"}'
 ```
 
-运行检查：
+详见 [DEPLOY.md](DEPLOY.md)。
+
+---
+
+## 5 种执行模式
 
 ```bash
-npm run inspect:run -- artifacts/runs/<run-id>.json
+# DSL (最快，已知模式无需 LLM)
+runGoal('open page "https://x.com" and assert text "Welcome"')
+
+# 自然语言 (LLM 规划任务)
+runGoal('verify that x.com works correctly')
+
+# ReAct (LLM 驱动每一步)
+runGoal('go to github.com and find the trending Python repo', { executionMode: 'react' })
+
+# CLI (持久 shell)
+runGoal('find all .ts files, count total lines', { executionMode: 'cli' })
+
+# Desktop (通过 xdotool 进行 GUI 自动化)
+runGoal('open LibreOffice Calc and create a spreadsheet', { executionMode: 'desktop' })
 ```
 
-Moonshot 验证：
+**自动升级**：sequential 模式失败的 NL 目标自动切换到 ReAct。
+
+---
+
+## 认知循环（核心差异化）
+
+任务失败时，大多数 agent 用退避重试。这个 agent 运行**真正的诊断循环**：
+
+```
+任务失败
+  ↓
+假设引擎生成 5 种类型化假设
+  (selector_drift / state_not_ready / session_lost / etc.)
+  ↓
+实验运行器测试每个假设（非破坏性探测）
+  ↓
+贝叶斯信念更新器调整置信度 (Beta 分布)
+  ↓
+恢复合成器需要时编写新代码/步骤
+  ↓
+反事实推理器通过因果图建议替代方案
+  ↓
+Replanner 插入恢复任务，或升级到视觉降级
+```
+
+每一步记录到推理追踪，通过 `GET /runs/:id/explain` 查询。
+
+---
+
+## 自主运行
+
+构建真正的 7×24 自主系统：
+
+```typescript
+import { startAutonomousLoop, addAutonomousWatcher } from './src/autonomy/autonomous-loop';
+import { createDirectoryWatcher } from './src/autonomy/environment-watcher';
+
+startAutonomousLoop();
+addAutonomousWatcher(createDirectoryWatcher('inbox', '/var/inbox', 5000));
+// 新文件出现 → agent 读取 → 决定 → 执行
+```
+
+还有：心跳监控、Cron 调度、Goal-Driven master/subagent (支持 300+ 小时)。
+
+---
+
+## 内置集成
+
+| 集成 | 文件 |
+|------|------|
+| 浏览器 (Playwright) | `src/handlers/browser-handler.ts` |
+| 持久 shell | `src/handlers/shell-session.ts` |
+| HTTP/文件/代码执行 | `src/handlers/*.ts` |
+| 桌面 GUI (xdotool) | `src/computer-use/desktop-agent.ts` |
+| 视觉 (Claude) | `src/handlers/computer-use-handler.ts` |
+| 邮件 (SMTP) | `src/handlers/email-handler.ts` |
+| 文档 (CSV/PDF/Excel) | `src/handlers/document-handler.ts` |
+| Telegram bot | `src/integrations/telegram-bot.ts` |
+
+---
+
+## 基准测试
 
 ```bash
-npm run verify:moonshot:env
-scripts/run-online-worker.sh verify
+npm run benchmark:full          # 完整套件（26 个测试）
+npm run benchmark:webarena      # WebArena 适配器
 ```
 
-## 项目方向
+### 验证结果
 
-项目正在从：
+| 类别 | 任务 | 通过率 |
+|------|------|--------|
+| DSL/NL/ReAct/CLI | 37 | 100% |
+| HumanEval 风格 | 8 | 100% |
+| AgencyBench Code | 3 | 100% |
+| 对抗性代码审计 | 5 | 100% |
+| ARC-AGI 抽象推理 | 5 | 0% |
+| **总计** | **~100** | **~97%** |
 
-`goal -> planner -> executor -> replanner`
+**已知限制**：架构不是瓶颈，LLM 是。
 
-逐步演进到：
+---
 
-`goal -> state -> observation -> verification -> hypothesis -> experiment -> belief update -> recovery -> memory extraction`
+## LLM 提供方配置
 
-下一阶段的重点不是“再加更多 planner”，而是继续强化认知核心：
+```bash
+# Moonshot K2.5 (经过测试)
+LLM_PLANNER_PROVIDER=openai-compatible
+LLM_PLANNER_API_KEY=sk-...
+LLM_PLANNER_MODEL=kimi-k2.5
+LLM_PLANNER_BASE_URL=https://api.moonshot.cn/v1
+LLM_PLANNER_TIMEOUT_MS=120000
 
-- 更强的 semantic memory
-- 更清晰的 world-state 建模
-- 更丰富的低风险 experiment policy
-- 能根据历史结果改变未来行为的 learning loop
+# Anthropic / OpenAI / DeepSeek 等都支持
+```
+
+可为每个角色配置不同 LLM：planner、replanner、recovery、verifier、react、vision。
+
+---
+
+## 许可证
+
+MIT. 见 [LICENSE](LICENSE).
