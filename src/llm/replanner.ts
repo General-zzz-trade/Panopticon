@@ -1,3 +1,4 @@
+import { logModuleError } from "../core/module-logger";
 import { FailurePattern } from "../memory";
 import { RecentRunSummary } from "./diagnoser";
 import { AgentAction, AgentTask } from "../types";
@@ -132,7 +133,7 @@ function createOpenAICompatibleReplanner(config: LLMReplannerConfig): LLMReplann
       let selectedPrompt: { id: string; systemPrompt: string } | undefined;
       if (!process.env.DISABLE_PROMPT_EVOLUTION) try {
         selectedPrompt = selectPrompt("replanner") ?? undefined;
-      } catch { /* fall back to default */ }
+      } catch (error) { logModuleError("replanner", "optional", error, "prompt selection"); }
       const systemPrompt = selectedPrompt?.systemPrompt ?? REPLANNER_SYSTEM_PROMPT;
 
       let raw: string;
@@ -158,7 +159,7 @@ function createOpenAICompatibleReplanner(config: LLMReplannerConfig): LLMReplann
         raw = result.content;
       } catch (err) {
         if (selectedPrompt) {
-          try { recordPromptOutcome(selectedPrompt.id, false); } catch {}
+          try { recordPromptOutcome(selectedPrompt.id, false); } catch (error) { logModuleError("replanner", "optional", error, "recording prompt outcome on call failure"); }
         }
         throw err;
       }
@@ -167,7 +168,7 @@ function createOpenAICompatibleReplanner(config: LLMReplannerConfig): LLMReplann
 
       if (!Array.isArray(parsed)) {
         if (selectedPrompt) {
-          try { recordPromptOutcome(selectedPrompt.id, false); } catch {}
+          try { recordPromptOutcome(selectedPrompt.id, false); } catch (error) { logModuleError("replanner", "optional", error, "recording prompt outcome on parse failure"); }
         }
         throw new Error("LLM replanner response was not a JSON task array.");
       }
@@ -177,7 +178,7 @@ function createOpenAICompatibleReplanner(config: LLMReplannerConfig): LLMReplann
         .filter((item): item is TaskBlueprint => item !== undefined);
 
       if (selectedPrompt) {
-        try { recordPromptOutcome(selectedPrompt.id, tasks.length > 0); } catch {}
+        try { recordPromptOutcome(selectedPrompt.id, tasks.length > 0); } catch (error) { logModuleError("replanner", "optional", error, "recording prompt outcome"); }
       }
 
       return tasks;
@@ -192,7 +193,7 @@ function createAnthropicReplanner(config: LLMReplannerConfig): LLMReplanner {
       let selectedPrompt: { id: string; systemPrompt: string } | undefined;
       if (!process.env.DISABLE_PROMPT_EVOLUTION) try {
         selectedPrompt = selectPrompt("replanner") ?? undefined;
-      } catch { /* fall back to default */ }
+      } catch (error) { logModuleError("replanner", "optional", error, "prompt selection"); }
       const systemPrompt = selectedPrompt?.systemPrompt ?? REPLANNER_SYSTEM_PROMPT;
 
       let raw: string;
@@ -218,7 +219,7 @@ function createAnthropicReplanner(config: LLMReplannerConfig): LLMReplanner {
         raw = result.content;
       } catch (err) {
         if (selectedPrompt) {
-          try { recordPromptOutcome(selectedPrompt.id, false); } catch {}
+          try { recordPromptOutcome(selectedPrompt.id, false); } catch (error) { logModuleError("replanner", "optional", error, "recording prompt outcome on call failure"); }
         }
         throw err;
       }
@@ -227,7 +228,7 @@ function createAnthropicReplanner(config: LLMReplannerConfig): LLMReplanner {
 
       if (!Array.isArray(parsed)) {
         if (selectedPrompt) {
-          try { recordPromptOutcome(selectedPrompt.id, false); } catch {}
+          try { recordPromptOutcome(selectedPrompt.id, false); } catch (error) { logModuleError("replanner", "optional", error, "recording prompt outcome on parse failure"); }
         }
         throw new Error("LLM replanner response was not a JSON task array.");
       }
@@ -237,7 +238,7 @@ function createAnthropicReplanner(config: LLMReplannerConfig): LLMReplanner {
         .filter((item): item is TaskBlueprint => item !== undefined);
 
       if (selectedPrompt) {
-        try { recordPromptOutcome(selectedPrompt.id, tasks.length > 0); } catch {}
+        try { recordPromptOutcome(selectedPrompt.id, tasks.length > 0); } catch (error) { logModuleError("replanner", "optional", error, "recording prompt outcome"); }
       }
 
       return tasks;

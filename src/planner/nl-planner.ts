@@ -28,6 +28,13 @@ const DSL_PATTERNS: RegExp[] = [
   /\bopen\s+"/i,
   /\btype\s+"[^"]+"\s+into\s+"/i,
   /\bselect\s+"[^"]+"\s+from\s+"/i,
+  /\bhttp_request\b/i,
+  /\bread_file\b/i,
+  /\bwrite_file\b/i,
+  /\brun_code\b/i,
+  /\bvisual_click\b/i,
+  /\bvisual_type\b/i,
+  /\bvisual_assert\b/i,
 ];
 
 /**

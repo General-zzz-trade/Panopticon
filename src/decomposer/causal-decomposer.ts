@@ -6,6 +6,7 @@
  * generates sub-goals to achieve them.
  */
 
+import { logModuleError } from "../core/module-logger";
 import type { CausalGraph, CausalEdge } from "../world-model/causal-graph";
 import { findPath, findPreconditions } from "../world-model/causal-graph";
 import type { SubGoal, DecompositionResult } from "./index";
@@ -114,7 +115,8 @@ export function inferCurrentState(info: {
   if (info.pageUrl) {
     try {
       parts.push(`page:${new URL(info.pageUrl).pathname}`);
-    } catch {
+    } catch (error) {
+      logModuleError("causal-decomposer", "optional", error, "URL parsing in state inference");
       parts.push(`page:${info.pageUrl}`);
     }
   }

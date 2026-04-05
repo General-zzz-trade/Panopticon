@@ -1,3 +1,4 @@
+import { logModuleError } from "../core/module-logger";
 import type { RunContext } from "../types";
 
 /**
@@ -44,7 +45,7 @@ export function extractDomainFromRun(context: RunContext): string {
   if (openPage?.payload.url) {
     try {
       return new URL(String(openPage.payload.url)).hostname.replace(/^www\./, "");
-    } catch { /* fall through */ }
+    } catch (error) { logModuleError("episode-generator", "optional", error, "URL domain extraction"); }
   }
   return "";
 }

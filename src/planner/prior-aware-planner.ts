@@ -1,4 +1,5 @@
 import { buildPlanningPriors, extractDomainFromGoal } from "../knowledge/planner-context";
+import { logModuleError } from "../core/module-logger";
 import type { PlanningPriorHit } from "../types";
 import type { TaskBlueprint } from "./task-id";
 
@@ -82,8 +83,8 @@ export function applyPlanningPriors(goal: string, blueprints: TaskBlueprint[]): 
         };
         notes.push(`auto-switched ${task.type} "${selector}" to ${visualType} (selector has ${failedEntries.length} failure record(s))`);
       }
-    } catch {
-      // Knowledge store may not be available
+    } catch (error) {
+      logModuleError("prior-aware-planner", "optional", error, "Failed to check selector failure history from knowledge store");
     }
   }
 

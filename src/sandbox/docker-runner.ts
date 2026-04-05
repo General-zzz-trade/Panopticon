@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
+import { logModuleError } from "../core/module-logger";
 
 export interface SandboxResult {
   stdout: string;
@@ -117,8 +118,8 @@ export async function runInDocker(opts: {
   } finally {
     try {
       unlinkSync(hostPath);
-    } catch {
-      /* ignore cleanup errors */
+    } catch (error) {
+      logModuleError("docker-runner", "optional", error, "cleaning up temp code file");
     }
   }
 }

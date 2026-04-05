@@ -3,6 +3,7 @@ import { createDiagnoserFromEnv, isLowQualityDiagnoserOutput, validateLLMDiagnos
 import { createPlannerFromEnv, validateLLMPlannerOutput } from "./llm/planner";
 import { createReplannerFromEnv, validateLLMReplannerOutput } from "./llm/replanner";
 import type { AgentTask } from "./types";
+import { logModuleError } from "./core/module-logger";
 
 async function main(): Promise<void> {
   const apiKey = process.env.MOONSHOT_API_KEY?.trim();
@@ -174,7 +175,8 @@ async function verifyDiagnoser(): Promise<boolean> {
 function extractHostname(baseUrl: string): string | undefined {
   try {
     return new URL(baseUrl).hostname;
-  } catch {
+  } catch (error) {
+    logModuleError("verify-moonshot", "optional", error, "extracting hostname from base URL");
     return undefined;
   }
 }

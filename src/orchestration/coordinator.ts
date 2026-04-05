@@ -4,7 +4,12 @@
  *
  * Each worker gets its own isolated context (browser, world state).
  * The coordinator collects results and produces a unified report.
+ *
+ * Supports LLM-driven decomposition (when configured) with DAG-based
+ * dependency tracking and topological execution ordering.
  */
+
+import { decomposeGoal, getParallelGroups, type SubGoal } from "./llm-decomposer";
 
 export interface WorkerTask {
   id: string;
@@ -139,6 +144,63 @@ export function generateReport(plan: CoordinationPlan): CoordinationReport {
     totalDurationMs: totalDuration,
     workerResults: plan.workers,
     summary: `Coordination complete: ${succeeded}/${plan.workers.length} succeeded, ${failed} failed.\n${workerSummaries}`
+  };
+}
+
+/**
+ * LLM-powered coordination planning — decomposes goal using LLM (with regex fallback),
+ * produces a DAG-aware plan with topological execution ordering.
+ */
+export async function planCoordinationLLM(goal: string): Promise<CoordinationPlan> {
+  const decomposition = await decomposeGoal(goal);
+
+  if (decomposition.subGoals.length <= 1) {
+    return {
+      originalGoal: goal,
+      strategy: "single",
+      workers: [{
+        id: "worker-0",
+        goal: decomposition.subGoals[0]?.goal ?? goal,
+        status: "pending"
+      }],
+      dependencies: new Map()
+    };
+  }
+
+  // Build workers from sub-goals
+  const workers: WorkerTask[] = decomposition.subGoals.map((sg, i) => ({
+    id: `worker-${i}`,
+    goal: sg.goal,
+    status: "pending" as const
+  }));
+
+  // Map sub-goal IDs to worker IDs for dependency translation
+  const sgIdToWorkerIdx = new Map<string, number>();
+  decomposition.subGoals.forEach((sg, i) => sgIdToWorkerIdx.set(sg.id, i));
+
+  const dependencies = new Map<string, string[]>();
+  for (let i = 0; i < decomposition.subGoals.length; i++) {
+    const sg = decomposition.subGoals[i];
+    const workerDeps = sg.dependsOn
+      .map(depId => {
+        const idx = sgIdToWorkerIdx.get(depId);
+        return idx !== undefined ? `worker-${idx}` : null;
+      })
+      .filter((d): d is string => d !== null);
+    dependencies.set(`worker-${i}`, workerDeps);
+  }
+
+  const hasAnyDeps = Array.from(dependencies.values()).some(d => d.length > 0);
+
+  // Use parallel groups to determine strategy
+  const groups = getParallelGroups(decomposition.subGoals);
+  const strategy = groups.length === 1 ? "parallel" : hasAnyDeps ? "sequential" : "parallel";
+
+  return {
+    originalGoal: goal,
+    strategy,
+    workers,
+    dependencies
   };
 }
 

@@ -6,6 +6,7 @@
 
 import { getLessonsForTaskType, getKnowledgeStats } from "../knowledge/store";
 import type { FailureHypothesisKind } from "../cognition/types";
+import { logModuleError } from "../core/module-logger";
 
 export interface ReflectionInsight {
   hypothesisSuccessRates: Record<string, number>;  // kind → success rate
@@ -38,8 +39,8 @@ export function runReflection(): ReflectionInsight {
           hypothesisKind: lesson.hypothesisKind
         });
       }
-    } catch {
-      // Knowledge store may not be initialized
+    } catch (error) {
+      logModuleError("reflection-loop", "optional", error, `Failed to get lessons for task type "${taskType}"`);
     }
   }
 

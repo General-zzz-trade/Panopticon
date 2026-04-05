@@ -6,6 +6,7 @@
  * records state transitions into the causal graph.
  */
 
+import { logModuleError } from "../core/module-logger";
 import { Logger } from "../logger";
 import { planExploration, createExplorationReport, DEFAULT_EXPLORATION_CONFIG } from "./explorer";
 import type { ExploredPage, ExplorationAction, ExplorationConfig } from "./explorer";
@@ -131,8 +132,8 @@ export async function runExploreCommand(url: string, logger: Logger): Promise<vo
           try {
             await session.page.goBack({ waitUntil: "domcontentloaded" });
             await session.page.waitForTimeout(300);
-          } catch {
-            // If back fails, navigate directly
+          } catch (error) {
+            logModuleError("explore-command", "optional", error, "browser back navigation failed, redirecting");
             await openPage(session, fromUrl);
           }
         }
@@ -198,7 +199,8 @@ function deriveState(observation: AgentObservation): string {
   if (observation.pageUrl) {
     try {
       parts.push(`page:${new URL(observation.pageUrl).pathname}`);
-    } catch {
+    } catch (error) {
+      logModuleError("explore-command", "optional", error, "URL parsing in state derivation");
       parts.push(`page:${observation.pageUrl}`);
     }
   }

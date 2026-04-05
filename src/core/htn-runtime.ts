@@ -27,6 +27,7 @@ import {
   callAnthropic,
   safeJsonParse
 } from "../llm/provider";
+import { logModuleError } from "./module-logger";
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -92,7 +93,8 @@ export async function decomposeGoalLLM(goal: string): Promise<string[]> {
     }
 
     return decomposeGoalSimple(goal);
-  } catch {
+  } catch (error) {
+    logModuleError("htn-runtime", "optional", error, "LLM goal decomposition");
     return decomposeGoalSimple(goal);
   }
 }
@@ -183,8 +185,8 @@ async function executeHTNNode(
       markNodeDone(plan, nodeId);
       return ctx;
     }
-  } catch {
-    // runGoal threw — treat as failure
+  } catch (error) {
+    logModuleError("htn-runtime", "optional", error, "direct goal execution before decomposition");
   }
 
   // Step 2: If depth limit reached, mark as failed

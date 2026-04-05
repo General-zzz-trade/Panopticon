@@ -5,6 +5,7 @@ import { runReflection, getAdjustedPrior } from "../learning/reflection-loop";
 import type { ReflectionInsight } from "../learning/reflection-loop";
 import { callOpenAICompatible, callAnthropic, readProviderConfig, safeJsonParse } from "../llm/provider";
 import type { LLMProviderConfig } from "../llm/provider";
+import { logModuleError } from "../core/module-logger";
 
 export async function generateFailureHypotheses(input: {
   context: RunContext;
@@ -20,8 +21,8 @@ export async function generateFailureHypotheses(input: {
   let reflectionInsight: ReflectionInsight | null = null;
   try {
     reflectionInsight = runReflection();
-  } catch {
-    // Reflection may not be available
+  } catch (error) {
+    logModuleError("hypothesis-engine", "optional", error, "running reflection for priors");
   }
 
   if (/timeout|loading|please wait/i.test(failureReason) || appState === "loading") {
@@ -85,8 +86,8 @@ export async function generateFailureHypotheses(input: {
         ));
       }
     }
-  } catch {
-    // Knowledge store may not be initialized — skip silently
+  } catch (error) {
+    logModuleError("hypothesis-engine", "optional", error, "loading knowledge-driven hypotheses");
   }
 
   // LLM-driven hypothesis generation: ALWAYS try when LLM is configured.
@@ -94,8 +95,8 @@ export async function generateFailureHypotheses(input: {
   try {
     const llmHypotheses = await generateLLMHypotheses(context, task, failureReason);
     hypotheses.push(...llmHypotheses);
-  } catch {
-    // LLM hypothesis generation is best-effort; fall through to predefined hypotheses
+  } catch (error) {
+    logModuleError("hypothesis-engine", "optional", error, "generating LLM hypotheses");
   }
 
   if (hypotheses.length === 0) {
@@ -167,7 +168,8 @@ function extractDomainFromContext(context: RunContext): string | undefined {
   if (!url) return undefined;
   try {
     return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
+  } catch (error) {
+    logModuleError("hypothesis-engine", "optional", error, "extracting domain from URL");
     return undefined;
   }
 }

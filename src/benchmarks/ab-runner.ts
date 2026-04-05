@@ -15,6 +15,7 @@ import {
   BASELINE, FULL, generateAblationProfiles,
   applyProfile, type EvalProfile
 } from "./eval-config";
+import { logModuleError } from "../core/module-logger";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -74,7 +75,7 @@ async function runProfile(
   try {
     for (const task of tasks) {
       await new Promise(resolve => setTimeout(resolve, 300));
-      if (appUrl) { try { await fetch(`${appUrl}/reset`); } catch {} }
+      if (appUrl) { try { await fetch(`${appUrl}/reset`); } catch (error) { logModuleError("ab-runner", "optional", error, "resetting app state between A/B tasks"); } }
 
       const start = Date.now();
       process.stdout.write(`  [${profile.name}] ${task.id} ${task.name.padEnd(40)} `);

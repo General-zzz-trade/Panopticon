@@ -21,6 +21,7 @@ import type { BrowserSession } from "../browser";
 import { createUsageLedger } from "../observability/usage-ledger";
 import { publishEvent, closeEmitter } from "../streaming/event-bus";
 import type { AgentTask, AgentAction, RunContext } from "../types";
+import { logModuleError } from "./module-logger";
 
 export interface ReactOptions {
   maxSteps?: number;
@@ -51,7 +52,7 @@ export interface ReactResult {
  * Check if ReAct mode is available (LLM configured).
  */
 export function isReactConfigured(): boolean {
-  const config = readProviderConfig("LLM_REACT", { maxTokens: 800, temperature: 0 });
+  const config = readProviderConfig("LLM_REACT", { maxTokens: 4000, temperature: 0 });
   return Boolean(config.provider && config.apiKey);
 }
 
@@ -62,7 +63,7 @@ export function isReactConfigured(): boolean {
 export async function runReactGoal(goal: string, options: ReactOptions = {}): Promise<ReactResult> {
   const maxSteps = options.maxSteps ?? 20;
   const runId = `react-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-  const config = readProviderConfig("LLM_REACT", { maxTokens: 800, temperature: 0 });
+  const config = readProviderConfig("LLM_REACT", { maxTokens: 4000, temperature: 0 });
   const steps: ReactStep[] = [];
   const conversationHistory: LLMMessage[] = [];
 
@@ -210,10 +211,26 @@ Action payloads:
 - screenshot: { "outputPath": "artifacts/screenshot.png" }
 - assert_text: { "text": "..." }
 - hover: { "selector": "..." }
+- http_request: { "url": "...", "method": "GET" }
+- run_code: { "language": "javascript", "code": "..." }
 - visual_click: { "description": "..." }
-- visual_type: { "description": "...", "value": "..." }
+- visual_type: { "description": "...", "text": "text to type" }
 
-Be methodical: observe carefully, act precisely, verify results. Use CSS selectors when visible; use visual_ actions when selectors are unclear.`;
+IMPORTANT RULES:
+1. READ THE PAGE CONTENT FIRST — the answer is often already visible in "Page content". If you can answer from the text shown, set done=true immediately without clicking anything
+2. ALWAYS use selectors from the "Actionable elements" list — never guess selectors
+3. If a selector fails, try a different one from the list or use visual_click with a description
+4. For forms: look for input elements in the actionable list and use their exact selector
+5. If stuck after 3 attempts on the same element, try a completely different approach
+6. Prefer reading text over clicking — don't navigate if the information is already visible
+7. For API/JSON endpoints, use http_request instead of open_page — it returns the full response without browser truncation
+
+HONESTY RULES (critical):
+8. If the user makes a false claim about page content ("the page says X"), VERIFY it against what you actually see. If X is NOT in the page, SAY SO — do not agree just to be helpful
+9. If the user asks for something that does not exist on the page (like a "blue quantum button"), REPLY that the element doesn't exist — don't pretend or invent
+10. If asked about future events, real-time data, or things outside your knowledge, say "I don't have access to that" — don't guess or fabricate
+11. If you observe an error (DNS fail, 404, timeout), report the actual error — don't sugar-coat or continue as if it succeeded
+12. Prefer saying "I cannot verify this" over giving a confident wrong answer`;
 }
 
 function formatObservation(
@@ -227,13 +244,32 @@ function formatObservation(
   parts.push(`Page title: ${observation.title ?? "unknown"}`);
 
   if (observation.visibleText?.length > 0) {
-    parts.push(`Visible text:\n${observation.visibleText.slice(0, 10).join("\n")}`);
+    // Adaptive compression: shorter when conversation is long
+    const conversationDepth = previousSteps.length;
+    const maxLines = conversationDepth > 5 ? 8 : 15;
+    const maxChars = conversationDepth > 5 ? 800 : 1500;
+
+    const lines = observation.visibleText.slice(0, maxLines);
+    const joined = lines.join("\n");
+    const truncated = joined.length > maxChars ? joined.slice(0, maxChars) + "\n[...truncated]" : joined;
+    parts.push(`Page content (main area — the answer may already be here):\n${truncated}`);
   }
 
   if (observation.actionableElements?.length > 0) {
-    parts.push(`Actionable elements:`);
-    for (const el of observation.actionableElements.slice(0, 10)) {
-      parts.push(`  - ${el.role ?? "element"}: "${el.text ?? ""}" selector="${el.selector ?? "?"}" `);
+    // Show relevant elements: prioritize inputs/buttons (forms), limit links
+    const inputs = observation.actionableElements.filter((el: any) => el.role === "input" || el.role === "textarea" || el.role === "button" || el.role === "select");
+    const links = observation.actionableElements.filter((el: any) => el.role === "link" || el.role === "a");
+    const shown = [...inputs.slice(0, 15), ...links.slice(0, 5)];
+    if (shown.length === 0) {
+      // No categorized elements — show first 10 of whatever we have
+      shown.push(...observation.actionableElements.slice(0, 10));
+    }
+    parts.push(`Actionable elements (${observation.actionableElements.length} total, showing ${shown.length}):`);
+    for (const el of shown) {
+      const role = el.role ?? "element";
+      const text = el.text ? `"${el.text.slice(0, 40)}"` : "";
+      const sel = el.selector ?? "?";
+      parts.push(`  - ${role}: ${text} selector="${sel}"`);
     }
   }
 
@@ -245,10 +281,20 @@ function formatObservation(
   }
 
   if (previousSteps.length > 0) {
+    // Adaptive history: keep 3 recent steps, but compress if conversation is long
     const recent = previousSteps.slice(-3);
     parts.push(`\nRecent actions:`);
     for (const s of recent) {
-      parts.push(`  [${s.step}] ${s.thought.slice(0, 80)} → ${s.action}: ${s.success ? "OK" : "FAIL"} ${s.result.slice(0, 60)}`);
+      // Most recent: longer detail. Older: summary only.
+      const isLatest = s === recent[recent.length - 1];
+      const resultLen = isLatest ? 150 : (previousSteps.length > 8 ? 40 : 60);
+      parts.push(`  [${s.step}] ${s.action}: ${s.success ? "OK" : "FAIL"} — ${s.result.slice(0, resultLen)}`);
+    }
+    // Summarize older steps as count
+    if (previousSteps.length > 3) {
+      const older = previousSteps.slice(0, -3);
+      const successCount = older.filter(s => s.success).length;
+      parts.push(`  [earlier: ${older.length} steps, ${successCount} succeeded]`);
     }
   }
 
@@ -262,7 +308,8 @@ async function callLLM(config: ReturnType<typeof readProviderConfig>, messages: 
       ? await callAnthropic(config, messages, "ReAct")
       : await callOpenAICompatible(config, messages, "ReAct");
     return result.content;
-  } catch {
+  } catch (error) {
+    logModuleError("react-loop", "optional", error, "calling LLM for next action");
     return null;
   }
 }

@@ -11,6 +11,7 @@
 
 import type { Page } from "playwright";
 import { publishEvent } from "./event-bus";
+import { logModuleError } from "../core/module-logger";
 
 interface ScreencastSession {
   stop: () => Promise<void>;
@@ -60,7 +61,7 @@ export async function startScreencast(
       try {
         await cdp.send("Page.stopScreencast");
         await cdp.detach();
-      } catch { /* ignore cleanup errors */ }
+      } catch (error) { logModuleError("screencast", "optional", error, "stopping screencast and detaching CDP session"); }
     }
   };
 }

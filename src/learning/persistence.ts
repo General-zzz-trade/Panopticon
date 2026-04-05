@@ -179,18 +179,52 @@ export function restoreSkillLibrary(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Convenience: Causal Graph
+// ---------------------------------------------------------------------------
+
+export function persistCausalGraph(): void {
+  try {
+    const { serializeGraph } = require("../world-model/causal-graph");
+    const { getActiveCausalGraph } = require("../world-model/causal-graph-registry");
+    const graph = getActiveCausalGraph();
+    if (graph && (graph.nodes.size > 0 || graph.edges.size > 0)) {
+      // Prune before persisting
+      const { pruneGraph } = require("../world-model/causal-graph");
+      pruneGraph(graph, 500, 2000);
+      const serialized = serializeGraph(graph);
+      saveLearningState("causal_graph", serialized);
+    }
+  } catch (e) {
+    console.warn("[persistence] failed to persist causal graph:", e);
+  }
+}
+
+export function restoreCausalGraph(): void {
+  try {
+    const data = loadLearningState<string>("causal_graph");
+    if (!data) return;
+    const { deserializeGraph } = require("../world-model/causal-graph");
+    const { setActiveCausalGraph } = require("../world-model/causal-graph-registry");
+    const graph = deserializeGraph(data);
+    setActiveCausalGraph(graph);
+  } catch (e) {
+    console.warn("[persistence] failed to restore causal graph:", e);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Bulk persist / restore
 // ---------------------------------------------------------------------------
 
 export function persistAllLearning(): void {
-  const fns = [persistThompsonStats, persistAdaptiveWeights, persistPromptVariants, persistStateClusters, persistSkillLibrary];
+  const fns = [persistThompsonStats, persistAdaptiveWeights, persistPromptVariants, persistStateClusters, persistSkillLibrary, persistCausalGraph];
   for (const fn of fns) {
     try { fn(); } catch (e) { console.warn("[persistence] error in", fn.name, e); }
   }
 }
 
 export function restoreAllLearning(): void {
-  const fns = [restoreThompsonStats, restoreAdaptiveWeights, restorePromptVariants, restoreStateClusters, restoreSkillLibrary];
+  const fns = [restoreThompsonStats, restoreAdaptiveWeights, restorePromptVariants, restoreStateClusters, restoreSkillLibrary, restoreCausalGraph];
   for (const fn of fns) {
     try { fn(); } catch (e) { console.warn("[persistence] error in", fn.name, e); }
   }

@@ -15,6 +15,7 @@
 import { decomposeGoal } from "../decomposer";
 import type { RunOptions } from "./runtime";
 import type { RunContext } from "../types";
+import { logModuleError } from "./module-logger";
 
 export interface SubRunResult {
   index: number;
@@ -80,7 +81,8 @@ export async function orchestrateGoal(
     let ctx: RunContext;
     try {
       ctx = await runGoal(enrichedGoal, options);
-    } catch {
+    } catch (error) {
+      logModuleError("orchestrator", "optional", error, `executing sub-goal: ${subGoal.goal}`);
       subRuns.push({
         index: subGoal.index,
         goal: subGoal.goal,

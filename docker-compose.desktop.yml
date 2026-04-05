@@ -1,0 +1,94 @@
+##############################################################################
+# Agent Desktop — 虚拟电脑环境
+#
+# 启动:
+#   docker compose -f docker-compose.desktop.yml up --build
+#
+# 访问:
+#   http://localhost:6080/vnc.html  → 看 agent 操作浏览器
+#   http://localhost:3000           → Agent API
+#
+# 运行目标:
+#   # 方式1: 通过 API
+#   curl -X POST http://localhost:3000/api/v1/runs \
+#     -H 'Content-Type: application/json' \
+#     -d '{"goal": "open page https://example.com and screenshot"}'
+#
+#   # 方式2: Computer Use (Claude 视觉驱动)
+#   curl -X POST http://localhost:3000/api/v1/computer-use \
+#     -H 'Content-Type: application/json' \
+#     -d '{"goal": "Go to Wikipedia and search for Claude AI", "startUrl": "https://www.wikipedia.org"}'
+#
+#   # 方式3: 直接运行 CLI 目标
+#   docker compose -f docker-compose.desktop.yml run agent goal "open page https://example.com and assert text Example"
+#
+#   # 方式4: Computer Use CLI
+#   docker compose -f docker-compose.desktop.yml run agent computer-use "Search Wikipedia for Agent"
+##############################################################################
+
+services:
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.desktop
+    ports:
+      - "3000:3000"     # Agent API
+      - "6080:6080"     # noVNC desktop viewer
+    environment:
+      # ── LLM Configuration (required for LLM planner + computer use) ────
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+
+      # ── Planner LLM (optional, falls back to template/regex planners) ──
+      - LLM_PLANNER_PROVIDER=${LLM_PLANNER_PROVIDER:-anthropic}
+      - LLM_PLANNER_API_KEY=${LLM_PLANNER_API_KEY:-${ANTHROPIC_API_KEY:-}}
+      - LLM_PLANNER_MODEL=${LLM_PLANNER_MODEL:-claude-sonnet-4-20250514}
+      - LLM_PLANNER_BASE_URL=${LLM_PLANNER_BASE_URL:-}
+
+      # ── Replanner LLM (optional) ──────────────────────────────────────
+      - LLM_REPLANNER_PROVIDER=${LLM_REPLANNER_PROVIDER:-anthropic}
+      - LLM_REPLANNER_API_KEY=${LLM_REPLANNER_API_KEY:-${ANTHROPIC_API_KEY:-}}
+      - LLM_REPLANNER_MODEL=${LLM_REPLANNER_MODEL:-claude-sonnet-4-20250514}
+
+      # ── Recovery / Diagnosis LLM (optional) ───────────────────────────
+      - LLM_RECOVERY_PROVIDER=${LLM_RECOVERY_PROVIDER:-anthropic}
+      - LLM_RECOVERY_API_KEY=${LLM_RECOVERY_API_KEY:-${ANTHROPIC_API_KEY:-}}
+      - LLM_RECOVERY_MODEL=${LLM_RECOVERY_MODEL:-claude-sonnet-4-20250514}
+
+      # ── Computer Use model ────────────────────────────────────────────
+      - LLM_COMPUTER_USE_MODEL=${LLM_COMPUTER_USE_MODEL:-claude-sonnet-4-20250514}
+
+      # ── Vision / Embedding (optional) ─────────────────────────────────
+      - LLM_VISION_API_KEY=${LLM_VISION_API_KEY:-${ANTHROPIC_API_KEY:-}}
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-}
+
+      # ── Display settings ──────────────────────────────────────────────
+      - SCREEN_WIDTH=${SCREEN_WIDTH:-1280}
+      - SCREEN_HEIGHT=${SCREEN_HEIGHT:-800}
+      - SCREEN_DEPTH=24
+
+      # ── Runtime ───────────────────────────────────────────────────────
+      - NODE_ENV=production
+
+    volumes:
+      - agent-data:/app/data         # SQLite database persistence
+      - agent-artifacts:/app/artifacts  # Screenshots, run artifacts
+
+    # Full internet access (default Docker networking)
+    # To restrict: uncomment and customize
+    # networks:
+    #   - agent-net
+
+    shm_size: '2gb'  # Chromium needs shared memory
+    restart: unless-stopped
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/v1/tools"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  agent-data:
+  agent-artifacts:

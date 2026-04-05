@@ -3,6 +3,7 @@
  * for semantic state comparison, loop detection, and causal graph enhancement.
  */
 
+import { logModuleError } from "../core/module-logger";
 import { localEmbedding } from "../memory/embedding";
 import type { AgentObservation } from "../cognition/types";
 
@@ -30,7 +31,8 @@ export function encodeObservation(obs: AgentObservation): number[] {
     try {
       const url = new URL(obs.pageUrl);
       parts.push(`url:${url.pathname}`);
-    } catch {
+    } catch (error) {
+      logModuleError("state-encoder", "optional", error, "URL parsing in observation encoding");
       parts.push(`url:${obs.pageUrl}`);
     }
   }
@@ -59,7 +61,7 @@ export function encodeObservation(obs: AgentObservation): number[] {
       if (typeof computeEmbeddingSync === "function") {
         return computeEmbeddingSync(combined);
       }
-    } catch { /* fall through to local */ }
+    } catch (error) { logModuleError("state-encoder", "optional", error, "semantic embedding sync fallback"); }
   }
 
   return localEmbedding(combined, 128);

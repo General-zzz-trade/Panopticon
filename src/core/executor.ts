@@ -9,6 +9,8 @@ import { captureRetryFailureArtifact, getRetryPolicy, waitBeforeRetry } from "./
 import { AgentTask, RunContext } from "../types";
 import { getActionHandler } from "../plugins/registry";
 import { getTool, toolRequiresApproval as registryRequiresApproval } from "../tools/registry";
+import { getSynthesizedTool, synthesizeTool, buildToolExecutionCode } from "../tools/synthesizer";
+import { logModuleError } from "./module-logger";
 
 export async function executeTask(
   context: RunContext,
@@ -132,11 +134,65 @@ async function dispatchTask(
     return handleWriteFileTask(context, task);
   }
 
+  if (task.type === "run_code") {
+    const { handleCodeTask } = await import("../handlers/code-handler");
+    return handleCodeTask(context, task);
+  }
+
   if (task.type === "start_app" || task.type === "wait_for_server" || task.type === "stop_app") {
     return handleShellTask(context, task, logger);
   }
 
+  // Check if this is a previously synthesized tool
+  const synthesized = getSynthesizedTool(task.type);
+  if (synthesized) {
+    return executeSynthesizedTool(context, task, synthesized, logger);
+  }
+
+  // For known browser actions, use the browser handler
+  const browserActions = new Set([
+    "open_page", "click", "type", "select", "scroll", "hover", "wait", "screenshot"
+  ]);
+  if (browserActions.has(task.type)) {
+    return handleBrowserTask(context, task, logger);
+  }
+
+  // Unknown task type — try to synthesize a new tool on the fly
+  logger.info(`Unknown task type "${task.type}" — attempting tool synthesis`);
+  try {
+    const newTool = await synthesizeTool(
+      `Execute a "${task.type}" action with parameters: ${JSON.stringify(task.payload)}`,
+      `This is part of the goal: ${context.goal}`
+    );
+    if (newTool) {
+      logger.info(`Synthesized new tool: ${newTool.definition.name}`);
+      return executeSynthesizedTool(context, task, newTool, logger);
+    }
+  } catch (error) {
+    logModuleError("tool-synthesis", "optional", error, `synthesizing handler for ${task.type}`);
+  }
+
+  // Final fallback: try browser handler (may work for custom selectors etc.)
   return handleBrowserTask(context, task, logger);
+}
+
+async function executeSynthesizedTool(
+  context: RunContext,
+  task: AgentTask,
+  tool: import("../tools/synthesizer").SynthesizedTool,
+  logger: Logger
+): Promise<TaskExecutionOutput> {
+  const { language, code } = buildToolExecutionCode(tool, task.payload as Record<string, unknown>);
+  logger.info(`Executing synthesized tool "${tool.definition.name}" (${language})`);
+
+  // Execute via the code handler
+  const codeTask: AgentTask = {
+    ...task,
+    type: "run_code",
+    payload: { language, code }
+  };
+  const { handleCodeTask } = await import("../handlers/code-handler");
+  return handleCodeTask(context, codeTask);
 }
 
 function getErrorMessage(error: unknown): string {

@@ -1,4 +1,5 @@
 import { findTemplates } from "../knowledge/store";
+import { logModuleError } from "../core/module-logger";
 import type { TaskBlueprint } from "./task-id";
 
 export interface KnowledgeTemplatePlanResult {
@@ -34,7 +35,8 @@ export function planFromKnowledge(goal: string): KnowledgeTemplatePlanResult {
   let blueprints: TaskBlueprint[] = [];
   try {
     blueprints = JSON.parse(best.tasksJson) as TaskBlueprint[];
-  } catch {
+  } catch (error) {
+    logModuleError("knowledge-template-planner", "optional", error, "Failed to parse knowledge template tasks JSON");
     return { matched: false, blueprints: [], confidence: 0 };
   }
 

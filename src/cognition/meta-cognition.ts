@@ -6,6 +6,7 @@
 
 import { getKnowledgeStats } from "../knowledge/store";
 import type { AgentTask, RunContext } from "../types";
+import { logModuleError } from "../core/module-logger";
 
 export interface MetaCognitionAssessment {
   domainFamiliarity: number;     // 0 = never seen, 1 = very familiar
@@ -60,7 +61,8 @@ function computeDomainFamiliarity(context: RunContext): number {
     // 0 entries = 0 familiarity, 20+ entries = 1.0 familiarity
     const totalKnowledge = stats.selectors + stats.lessons + stats.templates;
     return Math.min(1, totalKnowledge / 20);
-  } catch {
+  } catch (error) {
+    logModuleError("meta-cognition", "optional", error, "computing domain familiarity");
     return 0;
   }
 }
@@ -109,7 +111,8 @@ function extractDomain(context: RunContext): string {
   if (!url) return "";
   try {
     return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
+  } catch (error) {
+    logModuleError("meta-cognition", "optional", error, "extracting domain from URL");
     return "";
   }
 }

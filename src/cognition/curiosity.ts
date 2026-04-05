@@ -17,6 +17,7 @@ import { getKnowledgeStats, getLessonsForTaskType } from "../knowledge/store";
 import { readProviderConfig, callOpenAICompatible, callAnthropic, safeJsonParse } from "../llm/provider";
 import type { LLMMessage } from "../llm/provider";
 import * as fs from "fs";
+import { logModuleError } from "../core/module-logger";
 
 export interface GoalSuggestion {
   goal: string;
@@ -35,22 +36,22 @@ export function generateGoalSuggestions(maxSuggestions: number = 5): GoalSuggest
   // Source 1: Unexplored states in causal graph
   try {
     suggestions.push(...findUnexploredStates());
-  } catch { /* causal graph may not exist */ }
+  } catch (error) { logModuleError("curiosity", "optional", error, "finding unexplored states"); }
 
   // Source 2: Low-confidence transitions worth reinforcing
   try {
     suggestions.push(...findLowConfidenceTransitions());
-  } catch { /* optional */ }
+  } catch (error) { logModuleError("curiosity", "optional", error, "finding low-confidence transitions"); }
 
   // Source 3: Failed goals worth retrying
   try {
     suggestions.push(...findRetryableFailures());
-  } catch { /* optional */ }
+  } catch (error) { logModuleError("curiosity", "optional", error, "finding retryable failures"); }
 
   // Source 4: Coverage gaps (task types rarely tested)
   try {
     suggestions.push(...findCoverageGaps());
-  } catch { /* optional */ }
+  } catch (error) { logModuleError("curiosity", "optional", error, "finding coverage gaps"); }
 
   // Sort by priority and deduplicate
   return suggestions
@@ -104,7 +105,8 @@ What should I explore or test next? Suggest ${maxSuggestions} goals.`
       priority: Math.max(0, Math.min(1, s.priority)),
       source: "llm_generated" as const
     }));
-  } catch {
+  } catch (error) {
+    logModuleError("curiosity", "optional", error, "generating LLM goal suggestions");
     return [];
   }
 }
@@ -132,13 +134,13 @@ export function getKnowledgeSummary(): {
     for (const ep of episodes) {
       if (ep.domain) knownDomains.add(ep.domain);
     }
-  } catch { /* optional */ }
+  } catch (error) { logModuleError("curiosity", "optional", error, "fetching episode stats"); }
 
   let totalKnowledge = 0;
   try {
     const kStats = getKnowledgeStats();
     totalKnowledge = kStats.selectors + kStats.lessons + kStats.templates;
-  } catch { /* optional */ }
+  } catch (error) { logModuleError("curiosity", "optional", error, "fetching knowledge stats"); }
 
   return {
     totalEpisodes,
@@ -156,7 +158,8 @@ function loadCausalGraph(): CausalGraph | null {
     const graphPath = require("path").join(process.cwd(), "artifacts", "causal-graph.json");
     if (!fs.existsSync(graphPath)) return null;
     return deserializeGraph(fs.readFileSync(graphPath, "utf-8"));
-  } catch {
+  } catch (error) {
+    logModuleError("curiosity", "optional", error, "loading causal graph");
     return null;
   }
 }
@@ -237,7 +240,7 @@ function findRetryableFailures(): GoalSuggestion[] {
         }
       }
     }
-  } catch { /* optional */ }
+  } catch (error) { logModuleError("curiosity", "optional", error, "finding retryable failure episodes"); }
 
   return suggestions.slice(0, 2);
 }
@@ -267,7 +270,7 @@ function findCoverageGaps(): GoalSuggestion[] {
         source: "coverage_gap"
       });
     }
-  } catch { /* optional */ }
+  } catch (error) { logModuleError("curiosity", "optional", error, "checking coverage gaps"); }
 
   return suggestions;
 }

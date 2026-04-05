@@ -11,6 +11,7 @@
 
 import type { PromptVariant, BetaBelief } from "../cognition/types";
 import { sampleBeta, betaMean } from "../cognition/types";
+import { logModuleError } from "../core/module-logger";
 
 // In-memory prompt variant store
 const variants: Map<string, PromptVariant[]> = new Map();
@@ -183,8 +184,8 @@ export async function mutatePrompt(role: PromptVariant["role"]): Promise<PromptV
     if (result.content && result.content.length > 20) {
       return addVariant(role, result.content, worst.id);
     }
-  } catch {
-    // LLM mutation is best-effort
+  } catch (error) {
+    logModuleError("prompt-evolver", "optional", error, "LLM prompt mutation failed");
   }
   return null;
 }

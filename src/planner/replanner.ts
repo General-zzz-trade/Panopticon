@@ -4,6 +4,7 @@ import {
   createEscalationDecisionTrace,
   decideEscalation
 } from "../core/escalation-policy";
+import { logModuleError } from "../core/module-logger";
 import { summarizeRecentRuns } from "../llm/diagnoser";
 import { createReplannerFromEnv, validateLLMReplannerOutput } from "../llm/replanner";
 import { FailurePattern } from "../memory";
@@ -836,7 +837,8 @@ function deriveRecoveryDomain(context: RunContext): string | undefined {
 
   try {
     return new URL(directUrl).host;
-  } catch {
+  } catch (error) {
+    logModuleError("replanner", "optional", error, "Failed to parse recovery domain URL");
     return undefined;
   }
 }

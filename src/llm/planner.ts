@@ -1,3 +1,4 @@
+import { logModuleError } from "../core/module-logger";
 import { FailurePattern } from "../memory";
 import { RecentRunSummary } from "./diagnoser";
 import { AgentAction } from "../types";
@@ -136,7 +137,7 @@ function createOpenAICompatiblePlanner(config: LLMPlannerConfig): LLMPlanner {
       let selectedPrompt: { id: string; systemPrompt: string } | undefined;
       if (!process.env.DISABLE_PROMPT_EVOLUTION) try {
         selectedPrompt = selectPrompt("planner") ?? undefined;
-      } catch { /* fall back to default */ }
+      } catch (error) { logModuleError("planner", "optional", error, "prompt selection"); }
       const systemPrompt = selectedPrompt?.systemPrompt ?? PLANNER_SYSTEM_PROMPT;
 
       let raw: string;
@@ -162,7 +163,7 @@ function createOpenAICompatiblePlanner(config: LLMPlannerConfig): LLMPlanner {
         raw = result.content;
       } catch (err) {
         if (selectedPrompt) {
-          try { recordPromptOutcome(selectedPrompt.id, false); } catch {}
+          try { recordPromptOutcome(selectedPrompt.id, false); } catch (error) { logModuleError("planner", "optional", error, "recording prompt outcome on call failure"); }
         }
         throw err;
       }
@@ -171,7 +172,7 @@ function createOpenAICompatiblePlanner(config: LLMPlannerConfig): LLMPlanner {
 
       if (!Array.isArray(parsed)) {
         if (selectedPrompt) {
-          try { recordPromptOutcome(selectedPrompt.id, false); } catch {}
+          try { recordPromptOutcome(selectedPrompt.id, false); } catch (error) { logModuleError("planner", "optional", error, "recording prompt outcome on parse failure"); }
         }
         throw new Error("LLM planner response was not a JSON task array.");
       }
@@ -181,7 +182,7 @@ function createOpenAICompatiblePlanner(config: LLMPlannerConfig): LLMPlanner {
         .filter((item): item is TaskBlueprint => item !== undefined);
 
       if (selectedPrompt) {
-        try { recordPromptOutcome(selectedPrompt.id, tasks.length > 0); } catch {}
+        try { recordPromptOutcome(selectedPrompt.id, tasks.length > 0); } catch (error) { logModuleError("planner", "optional", error, "recording prompt outcome"); }
       }
 
       return tasks;
@@ -200,7 +201,7 @@ function createAnthropicPlanner(config: LLMPlannerConfig): LLMPlanner {
       let selectedPrompt: { id: string; systemPrompt: string } | undefined;
       if (!process.env.DISABLE_PROMPT_EVOLUTION) try {
         selectedPrompt = selectPrompt("planner") ?? undefined;
-      } catch { /* fall back to default */ }
+      } catch (error) { logModuleError("planner", "optional", error, "prompt selection"); }
       const systemPrompt = selectedPrompt?.systemPrompt ?? PLANNER_SYSTEM_PROMPT;
 
       let raw: string;
@@ -226,7 +227,7 @@ function createAnthropicPlanner(config: LLMPlannerConfig): LLMPlanner {
         raw = result.content;
       } catch (err) {
         if (selectedPrompt) {
-          try { recordPromptOutcome(selectedPrompt.id, false); } catch {}
+          try { recordPromptOutcome(selectedPrompt.id, false); } catch (error) { logModuleError("planner", "optional", error, "recording prompt outcome on call failure"); }
         }
         throw err;
       }
@@ -235,7 +236,7 @@ function createAnthropicPlanner(config: LLMPlannerConfig): LLMPlanner {
 
       if (!Array.isArray(parsed)) {
         if (selectedPrompt) {
-          try { recordPromptOutcome(selectedPrompt.id, false); } catch {}
+          try { recordPromptOutcome(selectedPrompt.id, false); } catch (error) { logModuleError("planner", "optional", error, "recording prompt outcome on parse failure"); }
         }
         throw new Error("LLM planner response was not a JSON task array.");
       }
@@ -245,7 +246,7 @@ function createAnthropicPlanner(config: LLMPlannerConfig): LLMPlanner {
         .filter((item): item is TaskBlueprint => item !== undefined);
 
       if (selectedPrompt) {
-        try { recordPromptOutcome(selectedPrompt.id, tasks.length > 0); } catch {}
+        try { recordPromptOutcome(selectedPrompt.id, tasks.length > 0); } catch (error) { logModuleError("planner", "optional", error, "recording prompt outcome"); }
       }
 
       return tasks;

@@ -6,6 +6,7 @@
  * it has seen less often and where the causal graph has fewer outgoing edges.
  */
 
+import { logModuleError } from "../core/module-logger";
 import type { CausalGraph } from "../world-model/causal-graph";
 import { addStateNode, addCausalEdge } from "../world-model/causal-graph";
 
@@ -185,8 +186,8 @@ export async function explore(
     const previousState = currentState;
     try {
       currentState = await callbacks.performAction(decision.action, decision.target);
-    } catch {
-      // Action failed — record failure edge and continue
+    } catch (error) {
+      logModuleError("proactive-explorer", "optional", error, "exploration action failed");
       addCausalEdge(graph, previousState, previousState, decision.action, decision.target, domain, false);
       edgesLearned++;
       continue;

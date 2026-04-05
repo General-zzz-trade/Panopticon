@@ -4,6 +4,7 @@
  * the entire visible page: layout, key elements, state indicators.
  */
 
+import { logModuleError } from "../core/module-logger";
 import { readProviderConfig, callAnthropic, callOpenAICompatible } from "../llm/provider";
 
 export interface SceneDescription {
@@ -30,8 +31,8 @@ export async function analyzeScene(
   if (config.provider && config.apiKey) {
     try {
       return await analyzeWithVLM(config, screenshotBase64);
-    } catch {
-      // Fall back to empty description
+    } catch (error) {
+      logModuleError("scene-analyzer", "optional", error, "VLM scene analysis");
     }
   }
 
@@ -69,7 +70,8 @@ async function analyzeWithVLM(
       stateIndicators: Array.isArray(parsed.stateIndicators) ? parsed.stateIndicators : [],
       confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.5
     };
-  } catch {
+  } catch (error) {
+    logModuleError("scene-analyzer", "optional", error, "VLM response JSON parsing");
     return createEmptyScene();
   }
 }

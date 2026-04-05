@@ -6,6 +6,7 @@
  * the planner prompt for few-shot guidance.
  */
 
+import { logModuleError } from "../core/module-logger";
 import { findSimilarEpisodes } from "./semantic-search";
 import {
   getLessonsForTaskType,
@@ -105,8 +106,8 @@ async function getEpisodeSummaries(goal: string, maxEpisodes: number): Promise<s
       (m) =>
         `[${m.episode.outcome}] ${m.episode.goal} — ${m.episode.summary} (similarity: ${m.similarity.toFixed(2)})`
     );
-  } catch {
-    // Semantic search may fail if embeddings aren't configured
+  } catch (error) {
+    logModuleError("context-injector", "optional", error, "semantic episode search");
     return [];
   }
 }
@@ -120,8 +121,8 @@ function getRelevantLessons(goal: string, domain: string | undefined, maxLessons
     try {
       const found = getLessonsForTaskType(taskType, domain);
       lessons.push(...found);
-    } catch {
-      // Knowledge store may not be initialized
+    } catch (error) {
+      logModuleError("context-injector", "optional", error, "knowledge store lesson lookup");
     }
   }
 
@@ -148,7 +149,8 @@ function getSelectorHints(domain: string | undefined): string[] {
         (s: SelectorMapEntry) =>
           `"${s.description}" => ${s.selector} (${s.successCount} successes)`
       );
-  } catch {
+  } catch (error) {
+    logModuleError("context-injector", "optional", error, "selector hints lookup");
     return [];
   }
 }
@@ -160,7 +162,8 @@ function getFailureWarnings(goal: string, domain: string | undefined): string[] 
       .filter((l) => l.successCount === 0 || l.errorPattern.length > 0)
       .slice(0, 5)
       .map((l) => `${l.taskType} on ${l.domain || "any domain"}: "${l.errorPattern}" — ${l.recovery}`);
-  } catch {
+  } catch (error) {
+    logModuleError("context-injector", "optional", error, "failure warnings lookup");
     return [];
   }
 }

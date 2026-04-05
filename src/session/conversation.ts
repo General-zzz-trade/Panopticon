@@ -13,6 +13,7 @@ import type { WorldStateSnapshot } from "../cognition/types";
 import type { CausalGraph } from "../world-model/causal-graph";
 import { createCausalGraph } from "../world-model/causal-graph";
 import { extractCausalTransitions } from "../world-model/extractor";
+import { logModuleError } from "../core/module-logger";
 
 export interface ConversationState {
   id: string;
@@ -108,7 +109,8 @@ export function isConversationActive(conversation: ConversationState): boolean {
     // Check if page is still connected
     conversation.browserSession.page.url();
     return true;
-  } catch {
+  } catch (error) {
+    logModuleError("conversation", "optional", error, "checking if browser page is still connected");
     return false;
   }
 }

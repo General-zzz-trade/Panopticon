@@ -1,6 +1,7 @@
 import { waitForDuration } from "../browser";
 import type { AgentTask, RunContext } from "../types";
 import type { ExperimentResult, FailureHypothesis, ObservationPatch } from "./types";
+import { logModuleError } from "../core/module-logger";
 
 export async function runRecoveryExperiments(input: {
   context: RunContext;
@@ -59,7 +60,8 @@ async function runStateReadinessExperiment(
     await waitForDuration(context.browserSession, 400);
     try {
       afterVisibleText = await context.browserSession.page.locator("body").innerText();
-    } catch {
+    } catch (error) {
+      logModuleError("experiment-runner", "optional", error, "re-reading body text after wait");
       afterVisibleText = beforeVisibleText;
     }
   }
@@ -123,11 +125,42 @@ async function runSelectorExperiment(
       try {
         const { findAlternativeSelectors } = await import("./selector-recovery");
         alternatives = await findAlternativeSelectors(context.browserSession!, selector, task.type);
-      } catch { /* selector recovery is optional */ }
+      } catch (error) { logModuleError("experiment-runner", "optional", error, "finding alternative selectors"); }
+
+      // If no DOM alternatives found, try visual fallback as last resort
+      let visualFallbackAvailable = false;
+      if (alternatives.length === 0) {
+        try {
+          const { tryVisualFallback } = await import("./selector-recovery");
+          const fallbackResult = await tryVisualFallback(context, task, selector);
+          if (fallbackResult.attempted && fallbackResult.output) {
+            visualFallbackAvailable = true;
+            return createResult(
+              context.runId,
+              task.id,
+              hypothesis.id,
+              "check selector presence in DOM",
+              "visual fallback executed after selector exhaustion",
+              "refute",
+              [
+                `selector=${selector}`,
+                `count=0`,
+                `visual_fallback=success`,
+                `summary=${fallbackResult.output.summary}`
+              ],
+              -0.2,
+              undefined,
+              ["visual_fallback_used", ...(fallbackResult.output.stateHints ?? [])]
+            );
+          }
+        } catch (error) { logModuleError("experiment-runner", "optional", error, "visual fallback attempt"); }
+      }
 
       const stateHints = alternatives.length > 0
         ? alternatives.slice(0, 3).map(a => `alternative_selector:${a.selector}:${a.strategy}`)
-        : [`experiment:selector_count:0`];
+        : visualFallbackAvailable
+          ? ["visual_fallback_available"]
+          : [`experiment:selector_count:0`];
 
       return createResult(
         context.runId,
@@ -140,6 +173,7 @@ async function runSelectorExperiment(
           `selector=${selector}`,
           `count=0`,
           `alternatives_found=${alternatives.length}`,
+          `visual_fallback=${visualFallbackAvailable ? "available" : "unavailable"}`,
           ...alternatives.slice(0, 3).map(a => `alt:${a.strategy}=${a.selector}`)
         ],
         0.18,

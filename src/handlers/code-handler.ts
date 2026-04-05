@@ -1,3 +1,4 @@
+import { logModuleError } from "../core/module-logger";
 import { execFileNoThrow } from "../utils/execFileNoThrow";
 import { isDockerAvailable, runInDocker } from "../sandbox/docker-runner";
 import type { RunContext, AgentTask } from "../types";
@@ -76,7 +77,7 @@ export async function handleCodeTask(
         result = await execFileNoThrow("sh", [filepath], { timeoutMs });
       }
     } finally {
-      try { unlinkSync(filepath); } catch { /* ignore cleanup errors */ }
+      try { unlinkSync(filepath); } catch (error) { logModuleError("code-handler", "optional", error, "temp file cleanup"); }
     }
   }
 

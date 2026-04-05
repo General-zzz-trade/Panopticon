@@ -1,3 +1,4 @@
+import { logModuleError } from "../core/module-logger";
 import { FailurePattern } from "../memory";
 import { AgentTask, RunMetrics, RunContext, TerminationReason } from "../types";
 import {
@@ -122,7 +123,7 @@ function createOpenAICompatibleDiagnoser(config: LLMDiagnoserConfig): LLMDiagnos
       let selectedPrompt: { id: string; systemPrompt: string } | undefined;
       if (!process.env.DISABLE_PROMPT_EVOLUTION) try {
         selectedPrompt = selectPrompt("diagnoser") ?? undefined;
-      } catch { /* fall back to default */ }
+      } catch (error) { logModuleError("diagnoser", "optional", error, "prompt selection"); }
       const systemPrompt = selectedPrompt?.systemPrompt ?? DIAGNOSER_SYSTEM_PROMPT;
 
       let raw: string;
@@ -138,7 +139,7 @@ function createOpenAICompatibleDiagnoser(config: LLMDiagnoserConfig): LLMDiagnos
         raw = result.content;
       } catch (err) {
         if (selectedPrompt) {
-          try { recordPromptOutcome(selectedPrompt.id, false); } catch {}
+          try { recordPromptOutcome(selectedPrompt.id, false); } catch (error) { logModuleError("diagnoser", "optional", error, "recording prompt outcome on call failure"); }
         }
         throw err;
       }
@@ -146,7 +147,7 @@ function createOpenAICompatibleDiagnoser(config: LLMDiagnoserConfig): LLMDiagnos
       const parsed = safeJsonParse(raw);
       if (!parsed || typeof parsed !== "object") {
         if (selectedPrompt) {
-          try { recordPromptOutcome(selectedPrompt.id, false); } catch {}
+          try { recordPromptOutcome(selectedPrompt.id, false); } catch (error) { logModuleError("diagnoser", "optional", error, "recording prompt outcome on parse failure"); }
         }
         throw new Error("LLM diagnoser response was not a JSON object.");
       }
@@ -154,13 +155,13 @@ function createOpenAICompatibleDiagnoser(config: LLMDiagnoserConfig): LLMDiagnos
       const normalized = normalizeDiagnoserOutput(parsed);
       if (!normalized) {
         if (selectedPrompt) {
-          try { recordPromptOutcome(selectedPrompt.id, false); } catch {}
+          try { recordPromptOutcome(selectedPrompt.id, false); } catch (error) { logModuleError("diagnoser", "optional", error, "recording prompt outcome on validation failure"); }
         }
         throw new Error("LLM diagnoser output failed schema validation.");
       }
 
       if (selectedPrompt) {
-        try { recordPromptOutcome(selectedPrompt.id, true); } catch {}
+        try { recordPromptOutcome(selectedPrompt.id, true); } catch (error) { logModuleError("diagnoser", "optional", error, "recording prompt outcome on success"); }
       }
 
       return normalized;
@@ -175,7 +176,7 @@ function createAnthropicDiagnoser(config: LLMDiagnoserConfig): LLMDiagnoser {
       let selectedPrompt: { id: string; systemPrompt: string } | undefined;
       if (!process.env.DISABLE_PROMPT_EVOLUTION) try {
         selectedPrompt = selectPrompt("diagnoser") ?? undefined;
-      } catch { /* fall back to default */ }
+      } catch (error) { logModuleError("diagnoser", "optional", error, "prompt selection"); }
       const systemPrompt = selectedPrompt?.systemPrompt ?? DIAGNOSER_SYSTEM_PROMPT;
 
       let raw: string;
@@ -191,7 +192,7 @@ function createAnthropicDiagnoser(config: LLMDiagnoserConfig): LLMDiagnoser {
         raw = result.content;
       } catch (err) {
         if (selectedPrompt) {
-          try { recordPromptOutcome(selectedPrompt.id, false); } catch {}
+          try { recordPromptOutcome(selectedPrompt.id, false); } catch (error) { logModuleError("diagnoser", "optional", error, "recording prompt outcome on call failure"); }
         }
         throw err;
       }
@@ -199,7 +200,7 @@ function createAnthropicDiagnoser(config: LLMDiagnoserConfig): LLMDiagnoser {
       const parsed = safeJsonParse(raw);
       if (!parsed || typeof parsed !== "object") {
         if (selectedPrompt) {
-          try { recordPromptOutcome(selectedPrompt.id, false); } catch {}
+          try { recordPromptOutcome(selectedPrompt.id, false); } catch (error) { logModuleError("diagnoser", "optional", error, "recording prompt outcome on parse failure"); }
         }
         throw new Error("LLM diagnoser response was not a JSON object.");
       }
@@ -207,13 +208,13 @@ function createAnthropicDiagnoser(config: LLMDiagnoserConfig): LLMDiagnoser {
       const normalized = normalizeDiagnoserOutput(parsed);
       if (!normalized) {
         if (selectedPrompt) {
-          try { recordPromptOutcome(selectedPrompt.id, false); } catch {}
+          try { recordPromptOutcome(selectedPrompt.id, false); } catch (error) { logModuleError("diagnoser", "optional", error, "recording prompt outcome on validation failure"); }
         }
         throw new Error("LLM diagnoser output failed schema validation.");
       }
 
       if (selectedPrompt) {
-        try { recordPromptOutcome(selectedPrompt.id, true); } catch {}
+        try { recordPromptOutcome(selectedPrompt.id, true); } catch (error) { logModuleError("diagnoser", "optional", error, "recording prompt outcome on success"); }
       }
 
       return normalized;

@@ -15,6 +15,7 @@
 import type { AgentTask, RunContext } from "../types";
 import type { RecoveryProgram } from "./types";
 import { readProviderConfig, callOpenAICompatible, callAnthropic, safeJsonParse } from "../llm/provider";
+import { logModuleError } from "../core/module-logger";
 
 const ALLOWED_RECOVERY_TYPES = new Set([
   "click", "type", "select", "scroll", "hover", "wait",
@@ -73,7 +74,8 @@ export async function synthesizeRecovery(input: {
     };
 
     return program;
-  } catch {
+  } catch (error) {
+    logModuleError("recovery-synthesizer", "optional", error, "synthesizing recovery program via LLM");
     return null;
   }
 }

@@ -4,6 +4,7 @@
  * so the HTTP call, timeout handling, and JSON helpers live here once.
  */
 
+import { logModuleError } from "../core/module-logger";
 import { incCounter } from "../observability/metrics-store";
 
 export interface LLMProviderConfig {
@@ -320,7 +321,8 @@ export async function callAnthropic(
 export function safeJsonParse(value: string): unknown {
   try {
     return JSON.parse(value);
-  } catch {
+  } catch (error) {
+    logModuleError("provider", "optional", error, "JSON parse failed");
     return undefined;
   }
 }

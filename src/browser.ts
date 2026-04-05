@@ -1,6 +1,7 @@
 import { Browser, BrowserContext, Page, chromium } from "playwright";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
+import { logModuleError } from "./core/module-logger";
 
 export interface BrowserSession {
   browser: Browser;
@@ -138,7 +139,7 @@ export async function clickWithIframeFallback(
       await session.page.click(selector);
       return { inIframe: false };
     }
-  } catch { /* try iframes */ }
+  } catch (error) { logModuleError("browser", "optional", error, "clicking element on main page before iframe fallback"); }
 
   // Search in all iframes
   const frames = session.page.frames();
@@ -150,7 +151,7 @@ export async function clickWithIframeFallback(
         await frame.click(selector);
         return { inIframe: true, frameSelector: frame.url() };
       }
-    } catch { /* continue */ }
+    } catch (error) { logModuleError("browser", "optional", error, "searching for element in iframe"); }
   }
 
   // Fallback to original click (will throw if element not found)
@@ -216,8 +217,8 @@ export function setupPopupHandler(session: BrowserSession): void {
       await popup.waitForLoadState("domcontentloaded");
       // Auto-switch to popup
       session.page = popup;
-    } catch {
-      // Popup may have been closed
+    } catch (error) {
+      logModuleError("browser", "optional", error, "handling popup window");
     }
   });
 }

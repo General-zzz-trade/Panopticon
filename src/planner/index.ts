@@ -33,6 +33,7 @@ import { TaskBlueprint } from "./task-id";
 import { validateAndMaterializeTasks } from "./validation";
 import { planFromKnowledge } from "./knowledge-template-planner";
 import { applyPlanningPriors } from "./prior-aware-planner";
+import { logModuleError } from "../core/module-logger";
 import { causalDecompose, inferGoalState, inferCurrentState } from "../decomposer/causal-decomposer";
 import { createCausalGraph, deserializeGraph, type CausalGraph } from "../world-model/causal-graph";
 import { selectPlannerThompson } from "./thompson-sampling";
@@ -180,8 +181,8 @@ export async function planTasks(goal: string, options: PlanTasksOptions): Promis
           }
         }
       }
-    } catch {
-      // NL planner failed — fall through to template/regex cascade
+    } catch (error) {
+      logModuleError("planner", "optional", error, "Natural language planner failed, falling through to template/regex cascade");
     }
   }
 
@@ -303,7 +304,7 @@ export async function planTasks(goal: string, options: PlanTasksOptions): Promis
       const thompsonPick = viableCandidates.find(c => c.planner === thompsonResult.selected);
       if (thompsonPick) bestRuleCandidate = thompsonPick;
     }
-  } catch { /* Thompson Sampling is optional */ }
+  } catch (error) { logModuleError("planner", "optional", error, "Thompson Sampling selection failed"); }
   const provider = createPlannerFromEnv();
   const providerHealth = buildProviderHealth(provider, llmUsageCap);
   const plannerQuality: PlanQualitySummary["quality"] | "unknown" = bestRuleCandidate?.qualitySummary.quality ?? "unknown";
@@ -945,7 +946,8 @@ function tryCausalPlan(
       triggerReason: `Causal graph path (${result.causalPath.length} steps, avg confidence: ${(result.causalPath.reduce((sum, e) => sum + e.confidence, 0) / result.causalPath.length).toFixed(2)})`,
       timeout: false
     };
-  } catch {
+  } catch (error) {
+    logModuleError("planner", "optional", error, "Causal plan decomposition failed");
     return null;
   }
 }
@@ -958,7 +960,8 @@ function loadCausalGraph(): CausalGraph | null {
     if (!fs.existsSync(graphPath)) return null;
     const json = fs.readFileSync(graphPath, "utf-8");
     return deserializeGraph(json);
-  } catch {
+  } catch (error) {
+    logModuleError("planner", "optional", error, "Failed to load causal graph from disk");
     return null;
   }
 }

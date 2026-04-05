@@ -8,6 +8,7 @@
  */
 import { getDb } from "../db/client";
 import type { FastifyRequest, FastifyReply } from "fastify";
+import { logModuleError } from "../core/module-logger";
 
 // ── Audit log ─────────────────────────────────────────────────────────────────
 
@@ -49,7 +50,7 @@ export function auditLog(entry: {
       entry.status ?? null,
       entry.detail ? maskSensitive(entry.detail) : null
     );
-  } catch { /* never block on audit failure */ }
+  } catch (error) { logModuleError("security", "optional", error, "writing audit log entry"); }
 }
 
 // ── Sensitive data masking ────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 import type { AgentTask, RunContext } from "../types";
 import type { AgentObservation, ObservationInput } from "./types";
 import { analyzeSceneFromText } from "../vision/scene-analyzer";
+import { logModuleError } from "../core/module-logger";
 
 export async function observeEnvironment(
   context: RunContext,
@@ -22,7 +23,11 @@ export async function observeEnvironment(
   try {
     payload.pageUrl = page.url();
     payload.title = await page.title();
-    payload.visibleText = await page.locator("body").innerText().then((text) => compactLines(text, 8));
+    // Try to extract main content first (skips navigation/menus), fallback to body
+    const mainContent = page.locator("main, #content, #mw-content-text, article, [role='main']").first();
+    const hasMain = await mainContent.count() > 0;
+    const textSource = hasMain ? mainContent : page.locator("body");
+    payload.visibleText = await textSource.innerText().then((text) => compactLines(text, 30));
     payload.actionableElements = await collectActionableElements(page);
     payload.appStateGuess = inferAppStateGuess(payload);
     payload.confidence = 0.75;
@@ -37,8 +42,8 @@ export async function observeEnvironment(
         stateIndicators: scene.stateIndicators,
         confidence: scene.confidence
       };
-    } catch {
-      // Scene analysis is optional
+    } catch (error) {
+      logModuleError("observation-engine", "optional", error, "visual scene analysis");
     }
   } catch (error) {
     payload.anomalies?.push(error instanceof Error ? error.message : "Observation failed.");
@@ -71,7 +76,7 @@ async function collectActionableElements(
 ): Promise<AgentObservation["actionableElements"]> {
   const candidates = page.locator("button, a, input, textarea, select");
   const count = await candidates.count();
-  const max = Math.min(count, 8);
+  const max = Math.min(count, 20);
   const elements: NonNullable<AgentObservation["actionableElements"]> = [];
 
   for (let index = 0; index < max; index += 1) {
@@ -79,7 +84,24 @@ async function collectActionableElements(
     const text = (await item.textContent())?.trim() || undefined;
     const tagName = await item.evaluate((node) => node.tagName.toLowerCase());
     const role = (await item.getAttribute("role")) ?? inferRoleFromTag(tagName);
-    const selector = await item.getAttribute("id").then((id) => (id ? `#${id}` : undefined));
+
+    // Build selector: try id, then name, then type+nth, then tag+nth
+    let selector: string | undefined;
+    const id = await item.getAttribute("id");
+    if (id) {
+      selector = `#${id}`;
+    } else {
+      const name = await item.getAttribute("name");
+      if (name) {
+        selector = `${tagName}[name="${name}"]`;
+      } else {
+        const type = await item.getAttribute("type");
+        if (type && tagName === "input") {
+          selector = `input[type="${type}"]`;
+        }
+      }
+    }
+
     elements.push({
       role,
       text,
@@ -110,11 +132,27 @@ function inferAppStateGuess(input: ObservationInput): string {
 }
 
 function compactLines(text: string, maxLines: number): string[] {
-  return text
+  const lines = text
     .split("\n")
     .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(0, maxLines);
+    .filter(Boolean);
+
+  // Separate content lines (>20 chars or containing key info) from short nav labels
+  const contentLines = lines.filter(l => l.length > 20 || /\t/.test(l) || /\d{4}/.test(l) || /designed|created|author|founded/i.test(l));
+  const shortLines = lines.filter(l => l.length <= 20 && !/\t/.test(l) && !/\d{4}/.test(l));
+
+  // Prioritize content lines, fill remaining with short lines
+  const result: string[] = [];
+  for (const line of contentLines) {
+    if (result.length >= maxLines) break;
+    result.push(line);
+  }
+  for (const line of shortLines) {
+    if (result.length >= maxLines) break;
+    result.push(line);
+  }
+
+  return result;
 }
 
 function inferRoleFromTag(tagName: string): string {

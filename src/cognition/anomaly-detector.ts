@@ -8,6 +8,7 @@ import type { AgentTask, RunContext } from "../types";
 import type { AgentObservation } from "./types";
 import { diffObservations } from "../vision/visual-diff";
 import { analyzeSceneFromText } from "../vision/scene-analyzer";
+import { logModuleError } from "../core/module-logger";
 
 export interface Anomaly {
   type: "unexpected_state" | "missing_transition" | "error_signal" | "regression" | "stale_page";
@@ -214,7 +215,8 @@ function computeOverallRisk(anomalies: Anomaly[]): AnomalyReport["overallRisk"] 
 function extractPath(url: string): string {
   try {
     return new URL(url).pathname;
-  } catch {
+  } catch (error) {
+    logModuleError("anomaly-detector", "optional", error, "parsing URL path");
     return url;
   }
 }

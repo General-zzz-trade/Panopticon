@@ -1,3 +1,4 @@
+import { logModuleError } from "../core/module-logger";
 import { readProviderConfig } from "../llm/provider";
 
 export interface EmbeddingResult {
@@ -15,8 +16,8 @@ export async function computeEmbedding(text: string): Promise<number[]> {
   if (config.provider && config.apiKey) {
     try {
       return await fetchRemoteEmbedding(config, text);
-    } catch {
-      // Fallback to local
+    } catch (error) {
+      logModuleError("embedding", "optional", error, "remote embedding API call");
     }
   }
 

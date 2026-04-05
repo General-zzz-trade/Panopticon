@@ -8,6 +8,10 @@
  */
 
 import type { BrowserSession } from "../browser";
+import type { RunContext, AgentTask } from "../types";
+import type { TaskExecutionOutput } from "../handlers/browser-handler";
+import { isVisualFallbackAvailable, handleVisualBrowserTask } from "../handlers/computer-use-handler";
+import { logModuleError } from "../core/module-logger";
 
 export interface SelectorAlternative {
   selector: string;
@@ -45,7 +49,7 @@ export async function findAlternativeSelectors(
           description: `Found by text content: "${textHint}"`
         });
       }
-    } catch { /* continue */ }
+    } catch (error) { logModuleError("selector-recovery", "optional", error, "text-based selector search"); }
 
     // Also try partial text match
     try {
@@ -59,7 +63,7 @@ export async function findAlternativeSelectors(
           description: `Found by partial text: "${textHint}"`
         });
       }
-    } catch { /* continue */ }
+    } catch (error) { logModuleError("selector-recovery", "optional", error, "partial text selector search"); }
   }
 
   // Strategy 2: Role-based search
@@ -75,7 +79,7 @@ export async function findAlternativeSelectors(
           description: `Found by role: ${role}`
         });
       }
-    } catch { /* continue */ }
+    } catch (error) { logModuleError("selector-recovery", "optional", error, "role-based selector search"); }
   }
 
   // Strategy 3: Attribute-based search
@@ -91,7 +95,7 @@ export async function findAlternativeSelectors(
           description: `Found by ${attr}`
         });
       }
-    } catch { /* continue */ }
+    } catch (error) { logModuleError("selector-recovery", "optional", error, "attribute-based selector search"); }
   }
 
   // Strategy 4: Similar elements nearby
@@ -107,7 +111,7 @@ export async function findAlternativeSelectors(
           description: `Found similar element with id/class containing "${idHint}"`
         });
       }
-    } catch { /* continue */ }
+    } catch (error) { logModuleError("selector-recovery", "optional", error, "fuzzy ID selector search"); }
   }
 
   return alternatives.sort((a, b) => b.confidence - a.confidence);
@@ -181,4 +185,35 @@ function buildAttributeSelectors(
 
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Try visual fallback when selector recovery has exhausted all DOM-based alternatives.
+ * Returns true if visual fallback successfully handled the task.
+ */
+export async function tryVisualFallback(
+  context: RunContext,
+  task: AgentTask,
+  _originalSelector: string
+): Promise<{ attempted: boolean; output?: TaskExecutionOutput }> {
+  if (!isVisualFallbackAvailable() || !context.browserSession) {
+    return { attempted: false };
+  }
+
+  // Only attempt visual fallback for interaction tasks
+  if (!["click", "type", "select", "visual_click", "visual_type"].includes(task.type)) {
+    return { attempted: false };
+  }
+
+  try {
+    const { Logger } = require("../logger");
+    const output = await handleVisualBrowserTask(context, task, new Logger());
+    return {
+      attempted: true,
+      output
+    };
+  } catch (error) {
+    logModuleError("visual-fallback", "optional", error, `visual fallback for ${task.type}`);
+    return { attempted: false };
+  }
 }

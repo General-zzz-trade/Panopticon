@@ -39,7 +39,10 @@ export type AgentAction =
   | "read_file"
   | "write_file"
   // Code execution
-  | "run_code";
+  | "run_code"
+  // Email actions
+  | "send_email"
+  | "read_email";
 
 export type GoalCategory = "explicit" | "semi-natural" | "ambiguous";
 export type EscalationStage = "planner" | "replanner" | "diagnoser";

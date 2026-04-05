@@ -21,7 +21,9 @@ const ALLOWED_PAYLOAD_FIELDS: Record<AgentAction, string[]> = {
   http_request: ["url", "method", "body", "headers", "timeoutMs"],
   read_file: ["path", "maxLength"],
   write_file: ["path", "content"],
-  run_code: ["language", "code", "timeoutMs"]
+  run_code: ["language", "code", "timeoutMs"],
+  send_email: ["to", "subject", "body", "cc", "bcc"],
+  read_email: ["folder", "count"]
 };
 
 const REQUIRED_PAYLOAD_FIELDS: Partial<Record<AgentAction, string[]>> = {

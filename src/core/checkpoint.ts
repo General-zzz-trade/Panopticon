@@ -7,6 +7,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import type { RunContext } from "../types";
+import { logModuleError } from "./module-logger";
 
 export interface Checkpoint {
   runId: string;
@@ -51,8 +52,8 @@ export function saveCheckpoint(
 
     const filePath = path.join(CHECKPOINT_DIR, `${context.runId}.json`);
     fs.writeFileSync(filePath, JSON.stringify(checkpoint, null, 2));
-  } catch {
-    // Checkpoint saving is optional — never block execution
+  } catch (error) {
+    logModuleError("checkpoint", "critical", error, "saving checkpoint to disk");
   }
 }
 
@@ -76,8 +77,8 @@ export function loadCheckpoint(goal: string): Checkpoint | null {
         return data;
       }
     }
-  } catch {
-    // Checkpoint loading is optional
+  } catch (error) {
+    logModuleError("checkpoint", "critical", error, "loading checkpoint from disk");
   }
 
   return null;
@@ -92,8 +93,8 @@ export function clearCheckpoint(runId: string): void {
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
-  } catch {
-    // Cleanup is optional
+  } catch (error) {
+    logModuleError("checkpoint", "optional", error, "clearing checkpoint file");
   }
 }
 

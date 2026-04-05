@@ -1,4 +1,5 @@
 import { Logger } from "../logger";
+import { logModuleError } from "../core/module-logger";
 import {
   clickElement,
   clickWithIframeFallback,
@@ -16,6 +17,7 @@ import { AgentTask, RunArtifact, RunContext } from "../types";
 import { publishEvent } from "../streaming/event-bus";
 import { startScreencast } from "../streaming/screencast";
 import { restoreSession, captureSession, extractDomain, isPasswordSelector } from "../auth/session-manager";
+import { isVisualFallbackAvailable, handleVisualBrowserTask } from "./computer-use-handler";
 
 export interface TaskExecutionOutput {
   summary: string;
@@ -36,8 +38,8 @@ async function captureAndPublishScreenshot(context: RunContext, taskId: string):
       timestamp: new Date().toISOString(),
       screenshotDataUrl: dataUrl
     });
-  } catch {
-    // never block execution for screenshot failure
+  } catch (error) {
+    logModuleError("browser-handler", "optional", error, "screenshot capture failed");
   }
 }
 
@@ -75,8 +77,8 @@ async function executeBrowserAction(
       // Wait for SPA hydration / network settle
       try {
         await session.page.waitForLoadState("networkidle", { timeout: 5000 });
-      } catch {
-        // Network idle timeout is acceptable — page may have long-polling
+      } catch (error) {
+        logModuleError("browser-handler", "optional", error, "network idle timeout during page load");
       }
 
       // Capture any cookies set during navigation (e.g., CSRF tokens)
@@ -98,10 +100,28 @@ async function executeBrowserAction(
       const session = requireBrowserSession(context, task.type);
       logger.info(`Clicking: ${selector}`);
       // Wait for element to appear (handles dynamic content and SPA navigation)
+      let selectorFound = true;
       try {
         await session.page.waitForSelector(selector, { timeout: 5000 });
-      } catch {
-        // Element may already exist or selector may be text-based — proceed with click attempt
+      } catch (error) {
+        logModuleError("browser-handler", "optional", error, "waitForSelector before click");
+        selectorFound = false;
+      }
+      // If selector not found and visual fallback available, try visual mode
+      if (!selectorFound && isVisualFallbackAvailable()) {
+        logger.info(`Selector "${selector}" not found, attempting visual fallback`);
+        try {
+          const visualResult = await handleVisualBrowserTask(context, task, logger);
+          if (visualResult.stateHints?.includes("visual_fallback_used")) {
+            return { ...visualResult, stateHints: [...(visualResult.stateHints ?? []), `original_selector:${selector}`] };
+          }
+        } catch (error) {
+          logModuleError("browser-handler", "optional", error, "visual fallback for click");
+        }
+        // Visual fallback failed — throw immediately instead of waiting 30s for selector again
+        if (!selectorFound) {
+          throw new Error(`Selector "${selector}" not found and visual fallback unavailable`);
+        }
       }
       // Try clicking with iframe fallback
       const clickResult = await clickWithIframeFallback(session, selector);
@@ -131,10 +151,26 @@ async function executeBrowserAction(
       const text = readString(task, "text");
       const session = requireBrowserSession(context, task.type);
       logger.info(`Typing into: ${selector}`);
+      let typeSelectorFound = true;
       try {
         await session.page.waitForSelector(selector, { timeout: 5000 });
-      } catch {
-        // Proceed with type attempt
+      } catch (error) {
+        logModuleError("browser-handler", "optional", error, "waitForSelector before type");
+        typeSelectorFound = false;
+      }
+      if (!typeSelectorFound && isVisualFallbackAvailable()) {
+        logger.info(`Selector "${selector}" not found for type, attempting visual fallback`);
+        try {
+          const visualResult = await handleVisualBrowserTask(context, task, logger);
+          if (visualResult.stateHints?.includes("visual_fallback_used")) {
+            return { ...visualResult, stateHints: [...(visualResult.stateHints ?? []), `original_selector:${selector}`] };
+          }
+        } catch (error) {
+          logModuleError("browser-handler", "optional", error, "visual fallback for type");
+        }
+        if (!typeSelectorFound) {
+          throw new Error(`Selector "${selector}" not found for type and visual fallback unavailable`);
+        }
       }
       await typeIntoElement(session, selector, text);
 
@@ -147,7 +183,7 @@ async function executeBrowserAction(
         setTimeout(async () => {
           try {
             await captureSession(session.context, tenantId, domain);
-          } catch { /* never block execution */ }
+          } catch (error) { logModuleError("browser-handler", "optional", error, "session capture after password input"); }
         }, 2000);
       }
 
@@ -164,8 +200,8 @@ async function executeBrowserAction(
       logger.info(`Selecting "${value}" in: ${selector}`);
       try {
         await session.page.waitForSelector(selector, { timeout: 5000 });
-      } catch {
-        // Proceed with select attempt
+      } catch (error) {
+        logModuleError("browser-handler", "optional", error, "waitForSelector before select");
       }
       await selectOption(session, selector, value);
       return {
@@ -238,8 +274,8 @@ async function getOrCreateBrowserSession(context: RunContext) {
     context.browserSession.page.on("dialog", async (dialog) => {
       try {
         await dialog.accept();
-      } catch {
-        // Dialog may already be dismissed
+      } catch (error) {
+        logModuleError("browser-handler", "optional", error, "dialog auto-dismiss");
       }
     });
     // Auto-switch to popup windows

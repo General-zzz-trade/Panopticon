@@ -177,3 +177,56 @@ export function deserializeGraph(json: string): CausalGraph {
 
   return graph;
 }
+
+/**
+ * Prune graph to fit within capacity limits.
+ * Removes lowest-confidence edges and orphaned nodes.
+ */
+export function pruneGraph(
+  graph: CausalGraph,
+  maxNodes: number = 500,
+  maxEdges: number = 2000
+): { prunedNodes: number; prunedEdges: number } {
+  let prunedEdges = 0;
+  let prunedNodes = 0;
+
+  // Prune edges by lowest confidence first
+  if (graph.edges.size > maxEdges) {
+    const sorted = Array.from(graph.edges.values())
+      .sort((a, b) => a.confidence - b.confidence);
+    const toRemove = sorted.slice(0, graph.edges.size - maxEdges);
+    for (const edge of toRemove) {
+      graph.edges.delete(edge.id);
+      const sourceEdges = graph.edgesBySource.get(edge.fromState);
+      if (sourceEdges) {
+        const idx = sourceEdges.indexOf(edge);
+        if (idx !== -1) sourceEdges.splice(idx, 1);
+      }
+      const targetEdges = graph.edgesByTarget.get(edge.toState);
+      if (targetEdges) {
+        const idx = targetEdges.indexOf(edge);
+        if (idx !== -1) targetEdges.splice(idx, 1);
+      }
+      prunedEdges++;
+    }
+  }
+
+  // Prune orphaned nodes (no edges referencing them)
+  if (graph.nodes.size > maxNodes) {
+    const referencedNodes = new Set<string>();
+    for (const edge of graph.edges.values()) {
+      referencedNodes.add(edge.fromState);
+      referencedNodes.add(edge.toState);
+    }
+    const sorted = Array.from(graph.nodes.values())
+      .filter(n => !referencedNodes.has(n.id))
+      .sort((a, b) => a.occurrences - b.occurrences);
+    const excess = graph.nodes.size - maxNodes;
+    for (let i = 0; i < Math.min(excess, sorted.length); i++) {
+      graph.nodes.delete(sorted[i].id);
+      prunedNodes++;
+    }
+  }
+
+  return { prunedNodes, prunedEdges };
+}

@@ -1,3 +1,5 @@
+import { logModuleError } from "./core/module-logger";
+
 export interface WaitForServerOptions {
   timeoutMs?: number;
   intervalMs?: number;
@@ -14,8 +16,8 @@ export async function waitForServer(url: string, options: WaitForServerOptions =
       if (response.ok) {
         return;
       }
-    } catch {
-      // Retry until timeout.
+    } catch (error) {
+      logModuleError("wait-for-server", "optional", error, `waiting for server at ${url}`);
     }
 
     await delay(intervalMs);

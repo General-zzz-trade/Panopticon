@@ -3,6 +3,7 @@
  * to save and restore browser sessions (cookies) across runs.
  */
 
+import { logModuleError } from "../core/module-logger";
 import type { BrowserContext } from "playwright";
 import { loadSession, saveSession } from "./session-store";
 
@@ -24,8 +25,8 @@ export async function restoreSession(
       await context.addCookies(cookies);
     }
     return true;
-  } catch {
-    // Corrupted session data — ignore and start fresh
+  } catch (error) {
+    logModuleError("session-manager", "optional", error, "restoring session cookies");
     return false;
   }
 }
@@ -50,8 +51,8 @@ export async function captureSession(
     if (domainCookies.length > 0) {
       saveSession(tenantId, domain, domainCookies);
     }
-  } catch {
-    // Never block execution for session capture failure
+  } catch (error) {
+    logModuleError("session-manager", "optional", error, "capturing session cookies");
   }
 }
 
@@ -64,7 +65,8 @@ export function extractDomain(url: string): string {
     const hostname = new URL(url).hostname;
     // Strip leading "www."
     return hostname.replace(/^www\./, "");
-  } catch {
+  } catch (error) {
+    logModuleError("session-manager", "optional", error, "extracting domain from URL");
     return url;
   }
 }

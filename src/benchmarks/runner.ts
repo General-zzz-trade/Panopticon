@@ -7,6 +7,7 @@
 import { createServer } from "node:http";
 import { runGoal } from "../core/runtime";
 import { getBenchmarkTasks, type BenchmarkTask, type TaskDifficulty } from "./tasks";
+import { logModuleError } from "../core/module-logger";
 
 interface TaskResult {
   task: BenchmarkTask;
@@ -45,7 +46,7 @@ async function main(): Promise<void> {
   for (const task of tasks) {
     // Wait for port release between tasks, then reset app state
     await new Promise(resolve => setTimeout(resolve, 500));
-    try { await fetch(`${url}/reset`); } catch {}
+    try { await fetch(`${url}/reset`); } catch (error) { logModuleError("benchmark-runner", "optional", error, "resetting app state between benchmark tasks"); }
 
     const start = Date.now();
     process.stdout.write(`  ${task.id} ${task.name.padEnd(45)} `);

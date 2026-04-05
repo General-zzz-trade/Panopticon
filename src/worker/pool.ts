@@ -3,6 +3,7 @@ import { setRunStatus, clearRunStatus } from "../api/run-store";
 import { JobQueue, JobRequest } from "./queue";
 import { incCounter, setGauge } from "../observability/metrics-store";
 import { upsertRun } from "../db/runs-repo";
+import { logModuleError } from "../core/module-logger";
 
 const DEFAULT_CONCURRENCY = Number(process.env.WORKER_CONCURRENCY ?? 4);
 
@@ -33,7 +34,8 @@ async function processJob(job: JobRequest): Promise<void> {
     incCounter("agent_replans_total", ctx.replanCount);
     incCounter("agent_llm_calls_total", ctx.usageLedger?.totalLLMInteractions ?? 0);
     setRunStatus(job.runId, "success");
-  } catch {
+  } catch (error) {
+    logModuleError("pool", "critical", error, "processing worker job");
     incCounter("agent_runs_failed_total");
     setRunStatus(job.runId, "failed");
   } finally {

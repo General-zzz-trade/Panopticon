@@ -1,0 +1,67 @@
+[
+  {
+    "task_id": 0,
+    "require_login": false,
+    "sites": ["wikipedia"],
+    "intent": "Tell me the population of France according to the Wikipedia infobox",
+    "start_url": "https://en.wikipedia.org/wiki/France",
+    "eval": {
+      "eval_types": ["string_match"],
+      "reference_answers": {
+        "must_include": ["68"]
+      }
+    }
+  },
+  {
+    "task_id": 1,
+    "require_login": false,
+    "sites": ["wikipedia"],
+    "intent": "What is the capital of Germany?",
+    "start_url": "https://en.wikipedia.org/wiki/Germany",
+    "eval": {
+      "eval_types": ["string_match"],
+      "reference_answers": {
+        "must_include": ["Berlin"]
+      }
+    }
+  },
+  {
+    "task_id": 2,
+    "require_login": false,
+    "sites": ["example"],
+    "intent": "Verify that the example.com page contains 'Example Domain' text",
+    "start_url": "https://example.com",
+    "eval": {
+      "eval_types": ["string_match"],
+      "reference_answers": {
+        "must_include": ["Example Domain"]
+      }
+    }
+  },
+  {
+    "task_id": 3,
+    "require_login": false,
+    "sites": ["httpbin"],
+    "intent": "Make a GET request to httpbin.org/get and verify the response contains 'origin'",
+    "start_url": "https://httpbin.org",
+    "eval": {
+      "eval_types": ["string_match"],
+      "reference_answers": {
+        "must_include": ["origin"]
+      }
+    }
+  },
+  {
+    "task_id": 4,
+    "require_login": false,
+    "sites": ["wikipedia"],
+    "intent": "Find the year Python programming language was first released",
+    "start_url": "https://en.wikipedia.org/wiki/Python_(programming_language)",
+    "eval": {
+      "eval_types": ["string_match"],
+      "reference_answers": {
+        "must_include": ["1991"]
+      }
+    }
+  }
+]

@@ -1,3 +1,4 @@
+import { logModuleError } from "../core/module-logger";
 import { serializeGraph, type CausalGraph } from "./causal-graph";
 import * as fs from "fs";
 import * as path from "path";
@@ -11,8 +12,8 @@ export function saveCausalGraph(graph: CausalGraph): void {
       fs.mkdirSync(dir, { recursive: true });
     }
     fs.writeFileSync(GRAPH_PATH, serializeGraph(graph), "utf-8");
-  } catch {
-    // Persistence is optional — never block execution
+  } catch (error) {
+    logModuleError("persistence", "critical", error, "saving causal graph to disk");
   }
 }
 

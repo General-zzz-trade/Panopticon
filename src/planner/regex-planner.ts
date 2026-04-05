@@ -171,11 +171,14 @@ function parseBlueprint(part: string): TaskBlueprint | null {
     return { type: "stop_app", payload: {} };
   }
 
-  // http_request: GET|POST "url"
+  // http_request: "url" or GET|POST "url"
   const httpMethod = part.match(/\b(GET|POST|PUT|PATCH|DELETE)\b/i)?.[1]?.toUpperCase();
-  const httpUrl = extractQuotedValue(part, /(?:GET|POST|PUT|PATCH|DELETE)\s+"([^"]+)"/i) ?? extractUrl(part);
-  if (httpUrl && httpMethod) {
-    return { type: "http_request", payload: { url: httpUrl, method: httpMethod } };
+  const httpUrl =
+    extractQuotedValue(part, /http_request\s+"([^"]+)"/i) ??
+    extractQuotedValue(part, /(?:GET|POST|PUT|PATCH|DELETE)\s+"([^"]+)"/i) ??
+    extractUrl(part);
+  if (httpUrl && (/\bhttp_request\b/i.test(part) || httpMethod)) {
+    return { type: "http_request", payload: { url: httpUrl, method: httpMethod ?? "GET" } };
   }
 
   // read_file: read file "path/to/file"
@@ -189,6 +192,12 @@ function parseBlueprint(part: string): TaskBlueprint | null {
   const writeContent = extractQuotedValue(part, /content\s+"([^"]+)"/i);
   if (writePath && writeContent && /\bwrite\s+file\b/i.test(part)) {
     return { type: "write_file", payload: { path: writePath, content: writeContent } };
+  }
+
+  // run_code: run_code "language" "code"
+  const runCodeMatch = part.match(/run_code\s+"([^"]+)"\s+"([^"]+)"/i);
+  if (runCodeMatch) {
+    return { type: "run_code", payload: { language: runCodeMatch[1], code: runCodeMatch[2] } };
   }
 
   return null;

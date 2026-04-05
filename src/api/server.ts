@@ -15,6 +15,7 @@ import { exploreRoutes } from "./routes/explore";
 import { coordinateRoutes } from "./routes/coordinate";
 import { reactRoutes } from "./routes/react";
 import { computerUseRoutes } from "./routes/computer-use";
+import { explainRoutes } from "./routes/explain";
 import { authPlugin, initApiKeysTable, createApiKey } from "./plugins/auth";
 import { initSchedulesTable } from "../scheduler/store";
 import { startScheduler } from "../scheduler/engine";
@@ -55,11 +56,19 @@ export async function buildServer() {
   await app.register(coordinateRoutes, { prefix: "/api/v1" });
   await app.register(reactRoutes, { prefix: "/api/v1" });
   await app.register(computerUseRoutes, { prefix: "/api/v1" });
+  await app.register(explainRoutes, { prefix: "/api/v1" });
 
-  app.get("/health", async () => ({
-    status: "ok",
-    timestamp: new Date().toISOString()
-  }));
+  // Health endpoint with full heartbeat report
+  const { generateHeartbeat, startHeartbeat } = require("../observability/heartbeat");
+  app.get("/health", async () => {
+    const report = await generateHeartbeat();
+    return {
+      status: report.healthy ? "ok" : "unhealthy",
+      ...report
+    };
+  });
+  // Start periodic heartbeat (every 30s)
+  startHeartbeat(30000);
 
   // List registered plugins
   app.get("/api/v1/plugins", async (_req, reply) => {

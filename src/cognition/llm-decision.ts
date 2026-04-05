@@ -11,6 +11,7 @@ import { readProviderConfig, callOpenAICompatible, callAnthropic, safeJsonParse 
 import type { AgentTask } from "../types";
 import type { CognitiveDecision, VerificationResult } from "./types";
 import { decideNextStep as ruleBasedDecision } from "./executive-controller";
+import { logModuleError } from "../core/module-logger";
 
 export interface LLMDecisionInput {
   task: AgentTask;
@@ -61,8 +62,8 @@ export async function llmDecideNextStep(input: LLMDecisionInput): Promise<Cognit
 
     const parsed = parseDecisionResponse(result.content);
     if (parsed) return parsed;
-  } catch {
-    // LLM call failed — fall back to rules
+  } catch (error) {
+    logModuleError("llm-decision", "optional", error, "LLM decision call failed, falling back to rules");
   }
 
   return ruleBasedDecision({

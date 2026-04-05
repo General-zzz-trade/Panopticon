@@ -3,6 +3,7 @@
  * and adds them to the causal graph.
  */
 
+import { logModuleError } from "../core/module-logger";
 import type { RunContext } from "../types";
 import type { CausalGraph } from "./causal-graph";
 import { addStateNode, addCausalEdge } from "./causal-graph";
@@ -91,7 +92,8 @@ function deriveState(
     try {
       const path = new URL(observation.pageUrl).pathname;
       parts.push(`page:${path}`);
-    } catch {
+    } catch (error) {
+      logModuleError("extractor", "optional", error, "URL parsing in state derivation");
       parts.push(`page:${observation.pageUrl}`);
     }
   }
@@ -137,7 +139,7 @@ function extractDomain(context: RunContext): string {
   if (openPage?.payload.url) {
     try {
       return new URL(String(openPage.payload.url)).hostname.replace(/^www\./, "");
-    } catch { /* fall through */ }
+    } catch (error) { logModuleError("extractor", "optional", error, "URL domain extraction"); }
   }
   return "";
 }

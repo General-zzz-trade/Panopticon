@@ -5,6 +5,7 @@ export async function assertTextVisible(
   text: string,
   timeoutMs = 5000
 ): Promise<void> {
-  const locator = session.page.getByText(text, { exact: false });
+  // Use .first() to avoid strict mode violation when multiple elements match
+  const locator = session.page.getByText(text, { exact: false }).first();
   await locator.waitFor({ state: "visible", timeout: timeoutMs });
 }

@@ -8,6 +8,7 @@
  * 3. Task templates from high-quality successful runs (score ≥ 80)
  */
 
+import { logModuleError } from "../core/module-logger";
 import type { AgentTask, RunContext } from "../types";
 import { upsertLesson, upsertSelector, upsertTemplate } from "./store";
 import type { TaskBlueprint } from "../planner/task-id";
@@ -22,8 +23,8 @@ export function extractKnowledgeFromRun(context: RunContext): void {
     extractSelectors(context, domain);
     extractFailureLessons(context, domain);
     extractTaskTemplate(context, domain);
-  } catch {
-    // Never let extraction errors surface to callers
+  } catch (error) {
+    logModuleError("knowledge-extractor", "optional", error, "knowledge extraction from run");
   }
 }
 
@@ -35,8 +36,8 @@ function extractDomain(context: RunContext): string {
   if (openPage?.payload.url) {
     try {
       return new URL(String(openPage.payload.url)).host;
-    } catch {
-      // fall through
+    } catch (error) {
+      logModuleError("knowledge-extractor", "optional", error, "URL domain extraction");
     }
   }
   return "";

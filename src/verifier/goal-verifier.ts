@@ -1,11 +1,33 @@
+import { logModuleError } from "../core/module-logger";
 import type { RunContext } from "../types";
 import type { AgentObservation, VerificationResult } from "../cognition/types";
 import { readProviderConfig, callOpenAICompatible, callAnthropic } from "../llm/provider";
+import { verifyCriteria } from "../goal/criteria-verifier";
+import type { Goal } from "../goal/types";
 
 export async function verifyGoalProgress(
   context: RunContext,
   observation: AgentObservation
 ): Promise<VerificationResult> {
+  // Strategy 0: Structured criteria verification (if goal was parsed)
+  const parsedGoal = (context as RunContext & { parsedGoal?: Goal }).parsedGoal;
+  if (parsedGoal && parsedGoal.successCriteria.length > 0) {
+    const criteriaResult = verifyCriteria(parsedGoal.successCriteria, observation, context);
+    if (criteriaResult.total > 0) {
+      const confidence = 0.5 + criteriaResult.confidence * 0.4; // Map to [0.5, 0.9]
+      const result: VerificationResult = {
+        runId: context.runId,
+        verifier: "goal",
+        passed: criteriaResult.passed,
+        confidence,
+        rationale: `Criteria: ${criteriaResult.met}/${criteriaResult.total} met. ${criteriaResult.details.map(d => d.evidence).join("; ")}`,
+        evidence: [`strategy=criteria`, `met=${criteriaResult.met}`, `total=${criteriaResult.total}`]
+      };
+      if (result.confidence >= 0.7) return result;
+      // If criteria verification is inconclusive, fall through to other strategies
+    }
+  }
+
   // Strategy 1: Quoted text extraction
   const strategy1 = verifyByQuotedText(context, observation);
   if (strategy1.confidence >= 0.7) {
@@ -153,7 +175,8 @@ async function verifyByLLM(
       rationale: parsed.rationale ?? (achieved ? "LLM confirmed goal achieved." : "LLM determined goal not yet achieved."),
       evidence: ["strategy=llm_semantic"]
     };
-  } catch {
+  } catch (error) {
+    logModuleError("goal-verifier", "optional", error, "LLM semantic goal verification");
     return null;
   }
 }

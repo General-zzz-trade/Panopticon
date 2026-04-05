@@ -9,7 +9,8 @@ export type ExecutionEventType =
   | "log"
   | "run_complete"
   | "approval_required"
-  | "help_requested";
+  | "help_requested"
+  | "dialogue_requested";
 
 export interface ExecutionEvent {
   type: ExecutionEventType;

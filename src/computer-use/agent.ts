@@ -21,6 +21,7 @@ import { extractCausalTransitions } from "../world-model/extractor";
 import { createCausalGraph } from "../world-model/causal-graph";
 import { saveCausalGraph } from "../world-model/persistence";
 import type { RunContext } from "../types";
+import { logModuleError } from "../core/module-logger";
 
 export interface ComputerUseOptions {
   maxSteps?: number;
@@ -86,7 +87,7 @@ export async function runComputerUseGoal(
 
     // Auto-dismiss dialogs
     session.page.on("dialog", async (dialog) => {
-      try { await dialog.accept(); } catch {}
+      try { await dialog.accept(); } catch (error) { logModuleError("computer-use-agent", "optional", error, "auto-dismissing dialog"); }
     });
 
     // Take initial screenshot
@@ -248,7 +249,7 @@ export async function runComputerUseGoal(
         summary, outcome: steps.length > 0 ? "success" : "failure",
         taskCount: steps.length, replanCount: 0, embedding
       });
-    } catch {}
+    } catch (error) { logModuleError("computer-use-agent", "optional", error, "saving episode for learning after computer use run"); }
 
     if (!options.keepBrowserAlive) {
       await closeBrowserSession(session);
@@ -371,7 +372,8 @@ function extractDomain(url?: string): string {
   if (!url) return "";
   try {
     return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
+  } catch (error) {
+    logModuleError("computer-use-agent", "optional", error, "extracting domain from URL");
     return "";
   }
 }
