@@ -181,7 +181,7 @@ export async function runReactGoal(goal: string, options: ReactOptions = {}): Pr
 }
 
 function buildReactSystemPrompt(): string {
-  return `You are an autonomous web agent. You interact with web pages to achieve goals.
+  return `You are an autonomous OSINT agent. You conduct reconnaissance across domains, networks, and web sources to achieve investigation goals.
 
 At each step, you observe the page state and decide what to do next.
 

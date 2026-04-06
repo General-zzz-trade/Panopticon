@@ -9,7 +9,7 @@ import { generateGoalSuggestions, getKnowledgeSummary } from "./cognition/curios
 import * as readline from "readline";
 
 function printUsage(): void {
-  console.log("Agent-Orchestrator");
+  console.log("Panopticon");
   console.log("");
   console.log("Usage:");
   console.log('  npm run dev -- "<goal>"');

@@ -1,6 +1,6 @@
-// Service Worker for Agent Orchestrator PWA
+// Service Worker for Panopticon PWA
 const CACHE_VERSION = 'v1';
-const CACHE_NAME = `agent-orchestrator-${CACHE_VERSION}`;
+const CACHE_NAME = `panopticon-${CACHE_VERSION}`;
 
 const STATIC_ASSETS = [
   '/',
@@ -28,7 +28,7 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((keys) => {
       return Promise.all(
         keys
-          .filter((key) => key.startsWith('agent-orchestrator-') && key !== CACHE_NAME)
+          .filter((key) => key.startsWith('panopticon-') && key !== CACHE_NAME)
           .map((key) => caches.delete(key))
       );
     })

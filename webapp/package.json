@@ -1,5 +1,5 @@
 {
-  "name": "agent-orchestrator-webapp",
+  "name": "panopticon-webapp",
   "private": true,
   "scripts": {
     "dev": "vite",

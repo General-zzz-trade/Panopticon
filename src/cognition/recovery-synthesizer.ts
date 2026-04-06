@@ -179,7 +179,7 @@ Generate a recovery sequence of 1-5 steps. Each step must be one of: ${Array.fro
 Respond as JSON: { "steps": [{ "type": "...", "payload": { ... } }] }`;
 }
 
-const SYSTEM_PROMPT = `You are a recovery strategy synthesizer for a UI automation agent.
+const SYSTEM_PROMPT = `You are a recovery strategy synthesizer for OSINT investigations.
 Generate minimal, targeted recovery steps to resolve task failures.
 Only use allowed task types. Keep sequences short (1-5 steps).
 Respond ONLY with valid JSON, no explanation.`;

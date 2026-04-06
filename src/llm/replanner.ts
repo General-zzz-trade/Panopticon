@@ -47,7 +47,7 @@ export const ALLOWED_REPLANNER_TASK_TYPES = new Set<AgentAction>([
   "read_file"
 ]);
 
-const REPLANNER_SYSTEM_PROMPT = `You are a constrained UI test replanner. Your job is to produce a small set of remedial steps to recover from a failed task.
+const REPLANNER_SYSTEM_PROMPT = `You are an OSINT recovery planner. Your job is to produce a small set of remedial steps to recover from a failed task.
 
 ## Output Format
 Return JSON only. Output {"tasks":[...]} where each task has "type" and "payload" fields.

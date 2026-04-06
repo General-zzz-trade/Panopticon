@@ -33,9 +33,13 @@ interface ClassificationResult {
 
 const TASK_KEYWORDS = /\b(open|click|type|navigate|go to|visit|browse|fill|submit|assert|check|verify|scroll|hover|run|execute|start|wait|screenshot|extract|select|download|upload|fetch|search|read file|write file|list files|http|api|curl|grep|find)\b/i;
 const URL_PATTERN = /https?:\/\/|www\./i;
+const OSINT_KEYWORDS = /\b(osint|whois|dns lookup|subdomain|port scan|reconnaissance|recon|investigate|fingerprint|geolocation|geoip|wayback|tech stack|certificate transparency|dork|email validation|username search|identity search|域名查询|端口扫描|子域名|情报收集|侦查|信息收集|渗透|枚举)\b/i;
 
 function classifyIntent(message: string): Intent {
   const trimmed = message.trim();
+
+  // OSINT requests → always treat as task
+  if (OSINT_KEYWORDS.test(trimmed)) return "task";
 
   // Obvious task: has URLs or explicit action verbs
   if (URL_PATTERN.test(trimmed)) return "task";
@@ -54,29 +58,42 @@ function classifyIntent(message: string): Intent {
 
 // ── LLM Chat ───────────────────────────────────────────────────
 
-function getChatConfig(): LLMProviderConfig | null {
-  // Reuse planner LLM config for chat (same provider)
+function getChatConfig(customOpts?: Record<string, unknown>): LLMProviderConfig | null {
+  // If custom model config provided by frontend, use it
+  if (customOpts?.customModel && customOpts.apiKey && customOpts.baseUrl) {
+    return {
+      provider: "openai-compatible",
+      model: String(customOpts.model || ""),
+      apiKey: String(customOpts.apiKey),
+      baseUrl: String(customOpts.baseUrl),
+      timeoutMs: 120000,
+      maxTokens: 2048,
+      temperature: 0.7,
+    };
+  }
+  // Default: reuse planner LLM config from env
   const config = readProviderConfig("LLM_PLANNER", {
     maxTokens: 2048,
     temperature: 0.7,
   });
   if (!config.apiKey) return null;
-  // Override: chat doesn't need JSON mode, needs more tokens
   return { ...config, maxTokens: 2048 };
 }
 
-const CHAT_SYSTEM_PROMPT = `You are Agent Orchestrator, an intelligent AI assistant that can both have conversations AND execute real-world tasks (browse websites, run commands, call APIs, manage files).
+const CHAT_SYSTEM_PROMPT = `You are Panopticon, an AI-powered open-source intelligence platform specialized in reconnaissance and investigation.
 
-When the user asks a question or chats, respond naturally and helpfully — like a knowledgeable friend.
+Your core capabilities (no API keys required):
+- **Domain Recon**: WHOIS lookup, DNS enumeration, subdomain discovery via certificate transparency, zone transfer testing
+- **Network Scan**: TCP port scanning, service banner grabbing, IP geolocation, traceroute, HTTP security header audit
+- **Identity Lookup**: Username enumeration across 37+ platforms (GitHub, Twitter, Reddit, LinkedIn, Bilibili, etc.), email MX validation, SMTP verification, disposable email detection
+- **Web Intelligence**: Technology stack detection (50+ signatures), Wayback Machine history, Google dork generation, robots.txt/sitemap analysis
+- **Metadata Extraction**: EXIF GPS coordinates from images, PDF metadata, HTTP fingerprinting
+- **Intelligence Correlation**: Entity relationship graphing, cluster analysis, timeline reconstruction
+- **Risk Assessment**: Automated vulnerability scoring and security recommendations
 
-When the user wants you to DO something (browse a website, run a command, etc.), you should indicate this clearly.
-
-Guidelines:
-- Be concise but thorough
-- Use markdown formatting when helpful
-- If you're unsure whether to chat or execute a task, default to answering the question directly
-- You have access to tools: browser automation, HTTP requests, shell commands, file operations
-- Be honest about what you can and cannot do`;
+When users ask OSINT questions, provide expert guidance on reconnaissance methodology.
+When users request an investigation, execute it using your built-in OSINT modules.
+Use markdown formatting. Be precise and professional. Present findings in structured tables when possible.`;
 
 async function callChatLLM(
   config: LLMProviderConfig,
@@ -287,8 +304,8 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         });
       }
 
-      // Chat mode: respond via LLM
-      const config = getChatConfig();
+      // Chat mode: respond via LLM (use custom model if provided by frontend)
+      const config = getChatConfig(options as Record<string, unknown>);
       if (!config) {
         // No LLM configured — return a helpful message
         return reply.send({

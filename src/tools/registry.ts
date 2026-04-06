@@ -9,7 +9,7 @@
  * - Verification strategy hints (how to verify this tool's output?)
  */
 
-export type ToolCategory = "browser" | "shell" | "http" | "file" | "code" | "vision" | "custom";
+export type ToolCategory = "browser" | "shell" | "http" | "file" | "code" | "vision" | "osint" | "custom";
 
 export interface ToolDefinition {
   name: string;                    // unique tool name, e.g. "click", "sql_query"
@@ -60,7 +60,19 @@ const BUILTIN_TOOLS: ToolDefinition[] = [
   { name: "write_file", category: "file", description: "Write a file", parameters: [{ name: "path", type: "string", required: true, description: "File path" }], verificationStrategy: "error", mutating: true, requiresApproval: true },
 
   // Code tools
-  { name: "run_code", category: "code", description: "Execute code in a sandbox", parameters: [{ name: "language", type: "string", required: true, description: "Language" }, { name: "code", type: "string", required: true, description: "Source code" }], verificationStrategy: "error", mutating: true, requiresApproval: true }
+  { name: "run_code", category: "code", description: "Execute code in a sandbox", parameters: [{ name: "language", type: "string", required: true, description: "Language" }, { name: "code", type: "string", required: true, description: "Source code" }], verificationStrategy: "error", mutating: true, requiresApproval: true },
+
+  // OSINT tools
+  { name: "osint_investigate", category: "osint", description: "Run full OSINT investigation on a target (domain/IP/email/username)", parameters: [{ name: "target", type: "string", required: true, description: "Target to investigate" }, { name: "type", type: "string", required: false, description: "Investigation type: domain|network|identity|web|full" }], verificationStrategy: "output", mutating: false, requiresApproval: false },
+  { name: "osint_domain", category: "osint", description: "Domain reconnaissance: WHOIS, DNS, subdomains, certificates", parameters: [{ name: "target", type: "string", required: true, description: "Domain to investigate" }], verificationStrategy: "output", mutating: false, requiresApproval: false },
+  { name: "osint_network", category: "osint", description: "Network reconnaissance: port scan, geolocation, traceroute, banners", parameters: [{ name: "target", type: "string", required: true, description: "IP or domain to scan" }], verificationStrategy: "output", mutating: false, requiresApproval: false },
+  { name: "osint_identity", category: "osint", description: "Identity reconnaissance: username enumeration, email validation, social profiles", parameters: [{ name: "target", type: "string", required: true, description: "Username or email to investigate" }], verificationStrategy: "output", mutating: false, requiresApproval: false },
+  { name: "osint_web", category: "osint", description: "Web intelligence: tech stack, Wayback Machine, robots.txt, Google dorks", parameters: [{ name: "target", type: "string", required: true, description: "URL or domain" }], verificationStrategy: "output", mutating: false, requiresApproval: false },
+  { name: "osint_threat", category: "osint", description: "Threat intelligence: malware/phishing detection, DNSBL, SSL security, suspicious pattern analysis", parameters: [{ name: "target", type: "string", required: true, description: "Domain or URL to check" }], verificationStrategy: "output", mutating: false, requiresApproval: false },
+  { name: "osint_asn", category: "osint", description: "ASN/IP intelligence: reverse IP lookup, AS number enumeration, IP block mapping, co-hosted domains", parameters: [{ name: "target", type: "string", required: true, description: "IP address" }], verificationStrategy: "output", mutating: false, requiresApproval: false },
+  { name: "osint_crawl", category: "osint", description: "Deep site crawl: recursive page discovery, email/phone extraction, form detection, link analysis", parameters: [{ name: "target", type: "string", required: true, description: "URL to crawl" }, { name: "maxPages", type: "number", required: false, description: "Max pages to crawl (default 20)" }], verificationStrategy: "output", mutating: false, requiresApproval: false },
+  { name: "osint_breach", category: "osint", description: "Breach check: password leak detection via HIBP k-anonymity, email breach lookup, password strength analysis", parameters: [{ name: "target", type: "string", required: true, description: "Email or password to check" }], verificationStrategy: "output", mutating: false, requiresApproval: false },
+  { name: "osint_screenshot", category: "osint", description: "Visual recon: capture full-page screenshot of target website", parameters: [{ name: "target", type: "string", required: true, description: "URL to screenshot" }], verificationStrategy: "output", mutating: false, requiresApproval: false },
 ];
 
 const registry = new Map<string, ToolDefinition>();

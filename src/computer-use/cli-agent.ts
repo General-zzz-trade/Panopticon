@@ -33,7 +33,7 @@ export interface CLIResult {
   totalSteps: number;
 }
 
-const SYSTEM_PROMPT = `You are a CLI automation agent with a persistent bash shell. You run commands and see their output to accomplish goals.
+const SYSTEM_PROMPT = `You are an OSINT CLI agent with a persistent bash shell. You run commands and see their output to accomplish goals.
 
 Respond with JSON:
 {"thought": "your reasoning", "command": "the shell command to run"}

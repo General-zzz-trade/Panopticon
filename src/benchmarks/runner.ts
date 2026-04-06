@@ -32,7 +32,7 @@ interface BenchmarkReport {
 }
 
 async function main(): Promise<void> {
-  console.log("=== Agent-Orchestrator Benchmark Suite ===\n");
+  console.log("=== Panopticon Benchmark Suite ===\n");
 
   const port = await getAvailablePort();
   const url = `http://127.0.0.1:${port}`;

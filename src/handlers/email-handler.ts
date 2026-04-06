@@ -169,7 +169,7 @@ function buildMimeMessage(
   bcc?: string
 ): string {
   const date = new Date().toUTCString();
-  const messageId = `<${Date.now()}.${Math.random().toString(36).slice(2)}@agent-orchestrator>`;
+  const messageId = `<${Date.now()}.${Math.random().toString(36).slice(2)}@panopticon>`;
 
   let headers = `From: ${from}\r\n`;
   headers += `To: ${to}\r\n`;
@@ -239,7 +239,7 @@ export async function sendEmail(
     assertSmtpCode(greeting, "220");
 
     // 2. EHLO
-    const ehloResp = await smtpCommand(socket, `EHLO agent-orchestrator`, TIMEOUT);
+    const ehloResp = await smtpCommand(socket, `EHLO panopticon`, TIMEOUT);
     assertSmtpCode(ehloResp, "250");
 
     // 3. AUTH LOGIN

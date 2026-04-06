@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEFAULT_ENV_FILE="$HOME/.config/agent-orchestrator/moonshot.env"
+DEFAULT_ENV_FILE="$HOME/.config/osint-agent/moonshot.env"
 FALLBACK_ENV_FILE="$ROOT_DIR/artifacts/online-worker/moonshot.env"
-DEFAULT_PROXY_ENV_FILE="$HOME/.config/agent-orchestrator/proxy.env"
+DEFAULT_PROXY_ENV_FILE="$HOME/.config/osint-agent/proxy.env"
 FALLBACK_PROXY_ENV_FILE="$ROOT_DIR/artifacts/online-worker/proxy.env"
 ENV_FILE="${AGENT_ONLINE_ENV_FILE:-$DEFAULT_ENV_FILE}"
 PROXY_ENV_FILE="${AGENT_PROXY_ENV_FILE:-$DEFAULT_PROXY_ENV_FILE}"

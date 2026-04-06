@@ -41,7 +41,7 @@ export interface LLMDiagnoser {
 }
 
 const DIAGNOSER_SYSTEM_PROMPT =
-  "You are a constrained run diagnoser. Return JSON only as {\"diagnosis\":string,\"topRisks\":string[],\"suggestedNextImprovements\":string[]}.";
+  "You are an OSINT investigation diagnoser. Return JSON only as {\"diagnosis\":string,\"topRisks\":string[],\"suggestedNextImprovements\":string[]}.";
 
 export function createDiagnoserFromEnv(): LLMDiagnoser | undefined {
   const config = readProviderConfig("LLM_DIAGNOSER", { maxTokens: 400 });

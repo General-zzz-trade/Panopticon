@@ -1,5 +1,5 @@
 /**
- * Shell Session — persistent interactive shell for CLI automation.
+ * Shell Session — persistent interactive shell for OSINT operations.
  *
  * Maintains a live bash process across multiple commands.
  * Supports: cd, environment variables, pipes, reading output,

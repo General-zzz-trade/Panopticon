@@ -43,7 +43,7 @@ export interface DesktopResult {
   totalSteps: number;
 }
 
-const SYSTEM_PROMPT = `You are a desktop automation agent. You can see a screenshot of a computer desktop and control the mouse and keyboard.
+const SYSTEM_PROMPT = `You are an OSINT desktop agent. You can see a screenshot of a computer desktop and control the mouse and keyboard.
 
 Available actions (respond with JSON):
 
@@ -65,7 +65,7 @@ RULES:
 5. READ the screen content first — the answer may already be visible`;
 
 /**
- * Check if desktop automation is available.
+ * Check if desktop OSINT environment is available.
  */
 export function isDesktopAvailable(): boolean {
   try {

@@ -151,7 +151,7 @@ async function verifyByLLM(
   const messages = [
     {
       role: "system" as const,
-      content: "You are a goal verification assistant. Given an agent's goal, the current visible page content, and task execution status, determine whether the goal has been achieved. Respond with JSON: {\"achieved\": true/false, \"rationale\": \"brief explanation\"}"
+      content: "You are an OSINT goal verification assistant. Given an investigation objective, current reconnaissance findings, and task execution status, determine whether the goal has been achieved. Respond with JSON: {\"achieved\": true/false, \"rationale\": \"brief explanation\"}"
     },
     {
       role: "user" as const,

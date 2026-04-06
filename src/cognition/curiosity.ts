@@ -72,7 +72,7 @@ export async function generateLLMGoalSuggestions(
   const messages: LLMMessage[] = [
     {
       role: "system",
-      content: `You are a curious AI agent that explores web applications. Based on what you've learned so far, suggest new goals to explore. Each goal should be a concrete, executable instruction.
+      content: `You are a curious OSINT agent that explores intelligence gathering opportunities. Based on what you've learned so far, suggest new goals to explore. Each goal should be a concrete, executable instruction.
 
 Respond with JSON:
 {

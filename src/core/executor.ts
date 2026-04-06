@@ -139,6 +139,12 @@ async function dispatchTask(
     return handleCodeTask(context, task);
   }
 
+  // OSINT reconnaissance tasks
+  if (task.type.startsWith("osint_")) {
+    const { handleOsintTask } = await import("../handlers/osint-handler");
+    return handleOsintTask(context, task);
+  }
+
   if (task.type === "start_app" || task.type === "wait_for_server" || task.type === "stop_app") {
     return handleShellTask(context, task, logger);
   }

@@ -127,13 +127,17 @@ export default function TemplatesPage() {
         body: JSON.stringify({ variables }),
       });
       const data = await res.json();
-      setRunStatus({
-        loading: false,
-        result: data.runId
-          ? `Run started: ${data.runId}`
-          : JSON.stringify(data),
-        error: null,
-      });
+
+      // Build the substituted goal
+      let goal = selected.goal || '';
+      for (const [key, value] of Object.entries(variables)) {
+        goal = goal.replace(new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g'), value || key);
+        goal = goal.replace(new RegExp(`\\$\\{${key}\\}`, 'g'), value || key);
+      }
+
+      // Store the goal and navigate to chat
+      localStorage.setItem('pendingGoal', goal || selected.name);
+      window.location.href = '/';
     } catch (err: unknown) {
       setRunStatus({
         loading: false,
@@ -222,8 +226,19 @@ export default function TemplatesPage() {
               <button
                 key={t.id}
                 onClick={() => openTemplate(t)}
-                className="text-left rounded-xl border border-gray-200 dark:border-gray-800 p-5 hover:border-gray-400 dark:hover:border-gray-600 hover:shadow-md transition group"
+                className="text-left rounded-xl border border-gray-200 dark:border-gray-800 p-5 hover:shadow-lg hover:scale-[1.01] transition-all duration-200 group bg-gradient-to-br from-white to-gray-50 dark:from-gray-900 dark:to-gray-800"
               >
+                <div className="flex items-start gap-3">
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-lg flex-shrink-0 ${
+                    t.category === 'scraping' ? 'bg-blue-100 dark:bg-blue-900/40' :
+                    t.category === 'monitoring' ? 'bg-green-100 dark:bg-green-900/40' :
+                    t.category === 'automation' ? 'bg-purple-100 dark:bg-purple-900/40' :
+                    t.category === 'research' ? 'bg-orange-100 dark:bg-orange-900/40' :
+                    'bg-cyan-100 dark:bg-cyan-900/40'
+                  }`}>
+                    {t.category === 'scraping' ? '🌐' : t.category === 'monitoring' ? '📊' : t.category === 'automation' ? '⚡' : t.category === 'research' ? '🔍' : '🧪'}
+                  </div>
+                  <div className="min-w-0 flex-1">
                 <h3 className="font-semibold text-sm mb-1 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition">
                   {t.name}
                 </h3>
@@ -242,6 +257,8 @@ export default function TemplatesPage() {
                   <span className="text-[10px] text-gray-400">
                     {t.popularity} uses
                   </span>
+                </div>
+                  </div>
                 </div>
               </button>
             ))}

@@ -23,7 +23,17 @@ const ALLOWED_PAYLOAD_FIELDS: Record<AgentAction, string[]> = {
   write_file: ["path", "content"],
   run_code: ["language", "code", "timeoutMs"],
   send_email: ["to", "subject", "body", "cc", "bcc"],
-  read_email: ["folder", "count"]
+  read_email: ["folder", "count"],
+  osint_investigate: ["target", "type"],
+  osint_domain: ["target"],
+  osint_network: ["target"],
+  osint_identity: ["target", "query"],
+  osint_web: ["target"],
+  osint_threat: ["target"],
+  osint_asn: ["target"],
+  osint_crawl: ["target", "maxPages", "maxDepth"],
+  osint_breach: ["target"],
+  osint_screenshot: ["target", "width", "height"],
 };
 
 const REQUIRED_PAYLOAD_FIELDS: Partial<Record<AgentAction, string[]>> = {

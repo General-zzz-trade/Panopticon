@@ -77,7 +77,7 @@ export async function llmDecideNextStep(input: LLMDecisionInput): Promise<Cognit
 }
 
 function buildDecisionPrompt(input: LLMDecisionInput): Array<{ role: "system" | "user"; content: string }> {
-  const system = `You are a cognitive decision engine for a UI automation agent.
+  const system = `You are a cognitive decision engine for OSINT investigations.
 
 Given the current state, decide what to do next. Respond with JSON only:
 {

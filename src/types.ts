@@ -42,7 +42,18 @@ export type AgentAction =
   | "run_code"
   // Email actions
   | "send_email"
-  | "read_email";
+  | "read_email"
+  // OSINT reconnaissance actions
+  | "osint_investigate"
+  | "osint_domain"
+  | "osint_network"
+  | "osint_identity"
+  | "osint_web"
+  | "osint_threat"
+  | "osint_asn"
+  | "osint_crawl"
+  | "osint_breach"
+  | "osint_screenshot";
 
 export type GoalCategory = "explicit" | "semi-natural" | "ambiguous";
 export type EscalationStage = "planner" | "replanner" | "diagnoser";

@@ -1,174 +1,139 @@
-# Agent Orchestrator
+# Panopticon
 
-**一个生产级的开源 Agent Harness，拥有深度认知架构。**
+**AI 驱动的开源情报平台 — 无需 API Key**
 
-一个 LLM 无关的运行时，把任何语言模型变成能自主工作的 Agent。5 种执行模式、完整的恢复循环、可解释的决策、7×24 自主运行。
+自动化域名侦查、网络扫描、身份枚举、Web 情报收集、威胁评估。33 个 OSINT 模块，65 个 API 端点，19 个 CLI 命令，暗黑主题 React UI。
 
-[English README](README.md) · [部署指南](DEPLOY.md) · [架构文档](docs/agi-agent-vision.zh-CN.md)
-
----
-
-## 为什么与众不同
-
-大多数开源 agent 只是 LLM tool-calling 的薄封装。这个项目是一个完整的 **Harness**（2026 年的术语，指"模型周围所有让它工作的东西"）：
-
-| | 本项目 | 常见 agent 框架 |
-|---|---|---|
-| 执行模式 | 5 种 (sequential / react / cli / desktop / htn) | 1-2 种 |
-| 失败恢复 | 贝叶斯假设引擎 + 实验验证 | 带退避的重试 |
-| 可解释性 | 每个决策都可通过 `/explain` API 查询 | 黑盒 |
-| 学习 | 战略级 (跨 run) + 战术级 (run 内) | 只有记忆 |
-| LLM 绑定 | 无 — 任何 OpenAI-compatible API | 通常绑定单一厂商 |
-| 自主性 | Watchers + 目标合成 + Goal-Driven 循环 | 每次请求一个目标 |
-
-**在 ~100 个真实任务上验证 97% 成功率**（HumanEval、AgencyBench Code、真实网站、CLI 自动化）。已知限制：抽象推理 (ARC-AGI 0%) — 需要 o3 级别的 LLM。
+[English](README.md) · [部署指南](DEPLOY.md)
 
 ---
 
-## 快速开始（5 分钟）
+## 核心能力
+
+所有模块仅使用免费公共数据源和系统命令，无需 Shodan、VirusTotal 或任何付费 API。
+
+| 能力 | 模块 | 数据源 |
+|------|------|--------|
+| **域名侦查** | WHOIS、DNS（10类型）、子域名（300+前缀爆破+crt.sh）、证书、区域传输 | `whois`、`dig`、crt.sh |
+| **网络扫描** | TCP端口扫描（30端口）、Banner抓取、IP地理定位、路由追踪、HTTP头审计 | TCP连接、ip-api.com |
+| **身份查询** | 用户名枚举（37平台）、邮箱MX/SMTP验证、一次性邮箱检测 | HTTP HEAD、`dig` MX |
+| **Web情报** | 技术栈（50+签名）、Wayback历史、Google Dork、robots.txt、站点地图 | fetch、archive.org |
+| **威胁情报** | URLhaus恶意检测、7个DNSBL黑名单、SSL安全、钓鱼模式识别 | abuse.ch、DNS黑名单 |
+| **ASN/反向IP** | AS号查询、CIDR映射、同IP域名发现、IP段信息 | Team Cymru、HackerTarget |
+| **泄露检查** | 密码泄露检测（HIBP k-匿名）、强度分析、邮箱泄露查询 | HaveIBeenPwned |
+| **深度爬虫** | 递归站点爬取、邮箱/电话提取、表单发现、截图捕获 | fetch BFS、Playwright |
+| **JS分析** | 密钥提取（20种模式）、API端点发现、内部URL检测 | fetch + 正则 |
+| **GitHub扫描** | 公开仓库搜索、代码泄露检测（15种密钥模式） | GitHub公开API |
+| **WAF/CDN检测** | 14种WAF + 14种CDN指纹、触发式WAF探测 | HTTP头/Cookie分析 |
+| **子域名接管** | 20种服务指纹、悬挂CNAME检测 | `dig` + fetch |
+| **CVE匹配** | Banner版本提取 → NVD CVE查询 | NVD REST API |
+| **域名仿冒** | 8种变体类型（交换、同形异义、键盘邻近...）、注册检查 | DNS解析 |
+| **云存储枚举** | S3/Azure Blob/GCP Storage桶发现 | HTTP探测 |
+| **API发现** | 60+常见路径探测 | HTTP探测 |
+| **新闻监控** | 8个安全RSS源、关键词匹配 | RSS/Atom解析 |
+| **暗网搜索** | Ahmia.fi .onion索引、粘贴站搜索 | 公开索引 |
+
+另外还有：调查链自动化（5个模板）、定时监控与变化检测、批量处理、自然语言查询解析、PDF报告导出、Slack/Discord/Telegram通知、SQLite持久化、知识图谱累积。
+
+---
+
+## 快速开始
 
 ```bash
 git clone https://github.com/General-zzz-trade/Agent-orchestrator.git
 cd Agent-orchestrator
 npm install
-npx playwright install chromium
 
-# 配置任意 LLM (Anthropic, OpenAI-compatible, 或 Moonshot K2.5)
-cp .env.desktop.example .env
-# 编辑 .env 填入你的 API key
+# 启动（OSINT 无需 API Key）
+AGENT_API_AUTH=false node --import tsx src/api/server.ts
 
-# 启动 API server
-node --env-file=.env --import tsx src/api/server.ts
+# 打开浏览器
+open http://localhost:3000
+```
 
-# 跑一个目标
-curl -X POST http://localhost:3000/api/v1/runs \
+### CLI 使用
+
+```bash
+npm run osint -- investigate github.com       # 综合调查
+npm run osint -- domain example.com           # 域名侦查
+npm run osint -- network 8.8.8.8              # 网络扫描
+npm run osint -- identity torvalds            # 身份查询
+npm run osint -- breach password123           # 泄露检查
+npm run osint -- threat phishing-site.tk      # 威胁检测
+npm run osint -- nl "扫描 8.8.8.8 的端口"      # 自然语言
+npm run osint -- --help                       # 所有命令
+```
+
+### API 使用
+
+```bash
+# 综合调查
+curl -X POST http://localhost:3000/api/v1/osint/investigate \
   -H 'Content-Type: application/json' \
-  -d '{"goal": "go to example.com and tell me what the page says", "executionMode": "react"}'
-```
+  -d '{"target": "github.com"}'
 
-详见 [DEPLOY.md](DEPLOY.md)。
+# 用户名枚举
+curl -X POST http://localhost:3000/api/v1/osint/username \
+  -H 'Content-Type: application/json' \
+  -d '{"username": "torvalds"}'
+
+# 密码泄露检查
+curl -X POST http://localhost:3000/api/v1/osint/breach/password \
+  -H 'Content-Type: application/json' \
+  -d '{"password": "password123"}'
+```
 
 ---
 
-## 5 种执行模式
+## 调查链
 
-```bash
-# DSL (最快，已知模式无需 LLM)
-runGoal('open page "https://x.com" and assert text "Welcome"')
+预置的多步骤自动化工作流：
 
-# 自然语言 (LLM 规划任务)
-runGoal('verify that x.com works correctly')
-
-# ReAct (LLM 驱动每一步)
-runGoal('go to github.com and find the trending Python repo', { executionMode: 'react' })
-
-# CLI (持久 shell)
-runGoal('find all .ts files, count total lines', { executionMode: 'cli' })
-
-# Desktop (通过 xdotool 进行 GUI 自动化)
-runGoal('open LibreOffice Calc and create a spreadsheet', { executionMode: 'desktop' })
-```
-
-**自动升级**：sequential 模式失败的 NL 目标自动切换到 ReAct。
-
----
-
-## 认知循环（核心差异化）
-
-任务失败时，大多数 agent 用退避重试。这个 agent 运行**真正的诊断循环**：
-
-```
-任务失败
-  ↓
-假设引擎生成 5 种类型化假设
-  (selector_drift / state_not_ready / session_lost / etc.)
-  ↓
-实验运行器测试每个假设（非破坏性探测）
-  ↓
-贝叶斯信念更新器调整置信度 (Beta 分布)
-  ↓
-恢复合成器需要时编写新代码/步骤
-  ↓
-反事实推理器通过因果图建议替代方案
-  ↓
-Replanner 插入恢复任务，或升级到视觉降级
-```
-
-每一步记录到推理追踪，通过 `GET /runs/:id/explain` 查询。
-
----
-
-## 自主运行
-
-构建真正的 7×24 自主系统：
-
-```typescript
-import { startAutonomousLoop, addAutonomousWatcher } from './src/autonomy/autonomous-loop';
-import { createDirectoryWatcher } from './src/autonomy/environment-watcher';
-
-startAutonomousLoop();
-addAutonomousWatcher(createDirectoryWatcher('inbox', '/var/inbox', 5000));
-// 新文件出现 → agent 读取 → 决定 → 执行
-```
-
-还有：心跳监控、Cron 调度、Goal-Driven master/subagent (支持 300+ 小时)。
-
----
-
-## 内置集成
-
-| 集成 | 文件 |
+| 链名 | 步骤 |
 |------|------|
-| 浏览器 (Playwright) | `src/handlers/browser-handler.ts` |
-| 持久 shell | `src/handlers/shell-session.ts` |
-| HTTP/文件/代码执行 | `src/handlers/*.ts` |
-| 桌面 GUI (xdotool) | `src/computer-use/desktop-agent.ts` |
-| 视觉 (Claude) | `src/handlers/computer-use-handler.ts` |
-| 邮件 (SMTP) | `src/handlers/email-handler.ts` |
-| 文档 (CSV/PDF/Excel) | `src/handlers/document-handler.ts` |
-| Telegram bot | `src/integrations/telegram-bot.ts` |
-
----
-
-## 基准测试
+| `full-domain` | 域名 → 网络 → Web → 威胁 → SSL → Dork |
+| `deep-subdomain` | 子域名枚举 → 逐个端口扫描 |
+| `identity-deep` | 身份 → 泄露 → GitHub |
+| `infrastructure-map` | 域名 → ASN → 网络 |
+| `web-exposure` | 爬虫 → 文档 → Dork → 威胁 |
 
 ```bash
-npm run benchmark:full          # 完整套件（26 个测试）
-npm run benchmark:webarena      # WebArena 适配器
+curl -X POST http://localhost:3000/api/v1/osint/chain/execute \
+  -H 'Content-Type: application/json' \
+  -d '{"chain": "full-domain", "target": "example.com"}'
 ```
 
-### 验证结果
-
-| 类别 | 任务 | 通过率 |
-|------|------|--------|
-| DSL/NL/ReAct/CLI | 37 | 100% |
-| HumanEval 风格 | 8 | 100% |
-| AgencyBench Code | 3 | 100% |
-| 对抗性代码审计 | 5 | 100% |
-| ARC-AGI 抽象推理 | 5 | 0% |
-| **总计** | **~100** | **~97%** |
-
-**已知限制**：架构不是瓶颈，LLM 是。
-
 ---
 
-## LLM 提供方配置
+## LLM 配置（可选）
+
+OSINT 模块无需 LLM。如需聊天功能：
 
 ```bash
-# Moonshot K2.5 (经过测试)
+# OpenAI
 LLM_PLANNER_PROVIDER=openai-compatible
 LLM_PLANNER_API_KEY=sk-...
-LLM_PLANNER_MODEL=kimi-k2.5
-LLM_PLANNER_BASE_URL=https://api.moonshot.cn/v1
-LLM_PLANNER_TIMEOUT_MS=120000
+LLM_PLANNER_MODEL=gpt-4o
+LLM_PLANNER_BASE_URL=https://api.openai.com/v1
 
-# Anthropic / OpenAI / DeepSeek 等都支持
+# 或 Ollama（本地免费）
+LLM_PLANNER_PROVIDER=openai-compatible
+LLM_PLANNER_API_KEY=ollama
+LLM_PLANNER_MODEL=llama3
+LLM_PLANNER_BASE_URL=http://localhost:11434/v1
 ```
 
-可为每个角色配置不同 LLM：planner、replanner、recovery、verifier、react、vision。
+---
+
+## 技术栈
+
+- **运行时**: Node.js 22, TypeScript 5.9
+- **后端**: Fastify, better-sqlite3, Playwright
+- **前端**: React 19, Vite 6, Tailwind CSS
+- **数据源**: 系统命令 (`whois`/`dig`/`openssl`) + 免费公共API (crt.sh, ip-api.com, archive.org, abuse.ch, HaveIBeenPwned, NVD, HackerTarget, RIPE)
 
 ---
 
 ## 许可证
 
-MIT. 见 [LICENSE](LICENSE).
+MIT

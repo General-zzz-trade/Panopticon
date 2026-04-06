@@ -43,6 +43,7 @@ import { conversationForkRoutes } from "./routes/conversation-fork";
 import { templateRoutes } from "./routes/templates";
 import { schedulesEnhancedRoutes } from "./routes/schedules-enhanced";
 import { webhookRoutes } from "./routes/webhooks";
+import osintRoutes from "./routes/osint";
 
 export async function buildServer() {
   initApiKeysTable();
@@ -117,6 +118,7 @@ export async function buildServer() {
   await app.register(templateRoutes, { prefix: "/api/v1" });
   await app.register(schedulesEnhancedRoutes, { prefix: "/api/v1" });
   await app.register(webhookRoutes, { prefix: "/api/v1" });
+  await app.register(osintRoutes, { prefix: "/api/v1" });
 
   // Landing page
   app.get("/landing", async (_req, reply) => {

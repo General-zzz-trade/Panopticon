@@ -1,5 +1,5 @@
 /**
- * Multi-Agent Orchestrator
+ * Multi-Panopticon
  *
  * Executes a decomposed goal by running each sub-goal as an independent
  * runGoal() call, chaining results sequentially. Each sub-goal gets its

@@ -29,7 +29,7 @@ export interface SynthesizedTool {
 // In-memory library of synthesized tools
 const synthesizedTools = new Map<string, SynthesizedTool>();
 
-const SYNTHESIS_PROMPT = `You are a tool generator for a browser automation agent. Given a task description that no existing tool can handle, generate a tool implementation.
+const SYNTHESIS_PROMPT = `You are a tool generator for an OSINT reconnaissance agent. Given a task description that no existing tool can handle, generate a tool implementation.
 
 Available context in the generated code:
 - For JavaScript: You can use fetch() for HTTP, fs for files, child_process for shell

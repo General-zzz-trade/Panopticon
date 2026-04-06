@@ -1,14 +1,15 @@
 {
-  "name": "agent-orchestrator",
-  "version": "1.0.0",
+  "name": "panopticon",
+  "version": "2.0.0",
   "private": true,
-  "description": "Agent-Orchestrator: a TypeScript agent orchestrator for UI task planning, execution, replanning, and run inspection.",
+  "description": "Panopticon: AI-powered open-source intelligence platform — domain recon, network scanning, identity enumeration, web intelligence, threat assessment. No API keys required.",
   "main": "dist/cli.js",
   "scripts": {
     "build": "tsc",
     "start": "node dist/cli.js",
     "dev": "node --import tsx src/cli.ts",
     "sample:app": "node --import tsx src/sample-app/server.ts",
+    "osint": "node --import tsx src/osint/cli.ts",
     "benchmark": "node --import tsx src/benchmarks/runner.ts",
     "eval:ab": "node --max-old-space-size=8192 --import tsx src/benchmarks/ab-runner.ts ab",
     "eval:ablation": "node --max-old-space-size=8192 --import tsx src/benchmarks/ab-runner.ts full",

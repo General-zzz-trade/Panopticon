@@ -6,10 +6,10 @@ import type { FastifyInstance } from "fastify";
 const openapiSpec = {
   openapi: "3.0.3",
   info: {
-    title: "Agent Orchestrator API",
+    title: "Panopticon API",
     version: "1.0.0",
     description:
-      "Cognitive agent runtime for UI automation — plan, execute, verify, and recover."
+      "OSINT intelligence platform — reconnaissance, scanning, analysis, and reporting — plan, execute, verify, and recover."
   },
   servers: [{ url: "/api/v1", description: "Default API prefix" }],
   paths: {
@@ -390,7 +390,7 @@ const SWAGGER_UI_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Agent Orchestrator — API Docs</title>
+  <title>Panopticon — API Docs</title>
   <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
   <style>body{margin:0}</style>
 </head>

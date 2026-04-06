@@ -194,7 +194,7 @@ async function generateLLMHypotheses(
     return [];
   }
 
-  const systemPrompt = `You are a failure diagnosis engine for a UI automation agent.
+  const systemPrompt = `You are a failure diagnosis engine for OSINT reconnaissance tasks.
 Given a failed task and its context, generate 1-3 novel hypotheses about why the failure occurred.
 Each hypothesis should be distinct from common patterns (selector drift, state not ready, session issues).
 Respond with JSON: { "hypotheses": [{ "name": string, "explanation": string, "experiment": string, "recovery": string }] }`;

@@ -78,7 +78,7 @@ export async function handleVisualBrowserTask(
         },
         {
           type: "text",
-          text: `You are a browser automation agent. Look at this screenshot (${viewport.width}x${viewport.height}) and ${description}.\n\nRespond with JSON: { "action": "click"|"type", "x": number, "y": number, "text"?: string }`
+          text: `You are an OSINT browser agent. Look at this screenshot (${viewport.width}x${viewport.height}) and ${description}.\n\nRespond with JSON: { "action": "click"|"type", "x": number, "y": number, "text"?: string }`
         }
       ]
     }]

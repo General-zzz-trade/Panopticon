@@ -62,7 +62,7 @@ export function MessageBubble({
       <>
         <div className="group mb-3 flex justify-end gap-2">
           <div className="max-w-[75%] text-right">
-            <div className="inline-block text-left rounded-2xl bg-gray-100 px-4 py-3 text-sm dark:bg-gray-800">
+            <div className="inline-block text-left rounded-2xl bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/30 px-4 py-3 text-sm">
               <Markdown content={message.content} />
               {/* Attachment thumbnails */}
               {message.attachments && message.attachments.length > 0 && (
@@ -116,7 +116,7 @@ export function MessageBubble({
   }
 
   // --- Assistant bubble ---
-  const displayContent = isStreaming ? (streamingContent ?? '') : message.content;
+  const displayContent = isStreaming ? (streamingContent || message.content || '') : message.content;
   const isFailed = message.success === false;
   const inlineEvents = events.filter((e) => KEY_EVENT_TYPES.has(e.type));
   const stepCount = events.length;

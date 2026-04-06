@@ -45,7 +45,7 @@ export const ALLOWED_PLANNER_TASK_TYPES = new Set<AgentAction>([
 ]);
 
 const PLANNER_SYSTEM_PROMPT =
-  "You are a constrained UI test planner. Return JSON only. Output {\"tasks\":[...]} where each task uses only allowed types: start_app, wait_for_server, open_page, click, type, select, scroll, hover, wait, assert_text, screenshot, stop_app. Keep payloads minimal and executable.";
+  "You are an OSINT reconnaissance planner. Return JSON only. Output {\"tasks\":[...]} where each task uses only allowed types: start_app, wait_for_server, open_page, click, type, select, scroll, hover, wait, assert_text, screenshot, stop_app. Keep payloads minimal and executable.";
 
 export function createPlannerFromEnv(): LLMPlanner | undefined {
   const config = readProviderConfig("LLM_PLANNER", { maxTokens: 600 });

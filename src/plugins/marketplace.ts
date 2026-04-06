@@ -158,7 +158,7 @@ export function getBuiltinSkills(): SkillPackage[] {
       name: "text_transform",
       version: "1.0.0",
       description: "Transform text with operations: uppercase, lowercase, reverse, count_words",
-      author: "agent-orchestrator",
+      author: "panopticon",
       category: "text",
       language: "javascript",
       tool: {
@@ -192,7 +192,7 @@ export function getBuiltinSkills(): SkillPackage[] {
       name: "json_query",
       version: "1.0.0",
       description: "Query JSON data using dot-notation path expressions",
-      author: "agent-orchestrator",
+      author: "panopticon",
       category: "data",
       language: "javascript",
       tool: {
@@ -232,7 +232,7 @@ export function getBuiltinSkills(): SkillPackage[] {
       name: "url_shortener",
       version: "1.0.0",
       description: "Generate a formatted short description for a URL",
-      author: "agent-orchestrator",
+      author: "panopticon",
       category: "web",
       language: "javascript",
       tool: {
@@ -270,7 +270,7 @@ export function getBuiltinSkills(): SkillPackage[] {
       name: "math_eval",
       version: "1.0.0",
       description: "Safely evaluate a mathematical expression",
-      author: "agent-orchestrator",
+      author: "panopticon",
       category: "math",
       language: "javascript",
       tool: {

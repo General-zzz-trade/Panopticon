@@ -2,7 +2,7 @@
 set -e
 
 echo "╔══════════════════════════════════════════════════╗"
-echo "║  Agent-Orchestrator Desktop Environment          ║"
+echo "║  OSINT Agent Desktop Environment          ║"
 echo "╠══════════════════════════════════════════════════╣"
 echo "║  Display:  ${SCREEN_WIDTH}x${SCREEN_HEIGHT}x${SCREEN_DEPTH}             ║"
 echo "║  noVNC:    http://localhost:${NOVNC_PORT}              ║"

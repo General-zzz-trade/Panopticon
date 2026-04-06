@@ -215,7 +215,7 @@ export async function runDebate(options: DebateOptions): Promise<DebateResult> {
 
   // --- Round 0: independent answers ---
   const initialPrompt = (agentId: string) =>
-    `You are ${agentId}. Answer this question with your reasoning and a confidence score (0-1):\n` +
+    `You are ${agentId}. Answer this OSINT question with your reasoning and a confidence score (0-1):\n` +
     `${options.question}\n` +
     `Respond strictly in JSON format: {"answer": "...", "reasoning": "...", "confidence": 0.X}`;
 

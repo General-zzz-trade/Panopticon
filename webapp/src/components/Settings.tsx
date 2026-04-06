@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Modal } from "./Modal";
+import { EnvCheck } from "./EnvCheck";
 import type { Settings as SettingsType } from "../types";
 
 interface SettingsProps {
@@ -124,6 +125,37 @@ export function Settings({ open, onClose, settings, onSave }: SettingsProps) {
     setJwtToken(null);
     setJwtUser(null);
     localStorage.removeItem("jwtToken");
+  }, []);
+
+  const importFileRef = useRef<HTMLInputElement>(null);
+
+  const exportConfig = useCallback(() => {
+    const data = {
+      settings: JSON.parse(localStorage.getItem('agentSettings') || '{}'),
+      modelConfig: JSON.parse(localStorage.getItem('modelConfig') || '{}'),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'agent-config.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const importConfig = useCallback((file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result as string);
+        if (data.settings) localStorage.setItem('agentSettings', JSON.stringify(data.settings));
+        if (data.modelConfig) localStorage.setItem('modelConfig', JSON.stringify(data.modelConfig));
+        window.location.reload();
+      } catch {
+        // Invalid JSON, ignore
+      }
+    };
+    reader.readAsText(file);
   }, []);
 
   return (
@@ -267,6 +299,40 @@ export function Settings({ open, onClose, settings, onSave }: SettingsProps) {
               )}
             </div>
           )}
+        </div>
+
+        {/* Environment Check */}
+        <div className="pt-2 border-t border-gray-200 dark:border-gray-800">
+          <EnvCheck />
+        </div>
+
+        {/* Config Import/Export */}
+        <div className="pt-2 border-t border-gray-200 dark:border-gray-800">
+          <p className="text-xs text-gray-500 mb-2">Config Import/Export</p>
+          <div className="flex gap-2">
+            <button
+              onClick={exportConfig}
+              className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-700 rounded-lg text-xs hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 transition"
+            >
+              导出配置
+            </button>
+            <button
+              onClick={() => importFileRef.current?.click()}
+              className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-700 rounded-lg text-xs hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 transition"
+            >
+              导入配置
+            </button>
+            <input
+              ref={importFileRef}
+              type="file"
+              accept=".json"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) importConfig(file);
+              }}
+            />
+          </div>
         </div>
 
         {/* Save button */}

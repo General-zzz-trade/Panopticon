@@ -190,7 +190,7 @@ async function main(): Promise<void> {
   }
 
   const taskCount = mode === "external" ? getExternalBenchmarkTasks().length : tasks.length;
-  console.log(`\n=== Agent-Orchestrator A/B Evaluation ===`);
+  console.log(`\n=== Panopticon A/B Evaluation ===`);
   console.log(`Tasks: ${taskCount}, Mode: ${mode}${url ? `, App: ${url}` : ""}\n`);
 
   if (mode === "ab" || mode === "full" || mode === "hard") {

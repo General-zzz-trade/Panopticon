@@ -214,10 +214,25 @@ export function useChat() {
         const abortController = new AbortController();
         abortRef.current = abortController;
 
+        // Read model config from localStorage and pass to backend
+        let modelOpts: Record<string, unknown> = {};
+        try {
+          const mc = JSON.parse(localStorage.getItem('modelConfig') || '{}');
+          if (mc.mode && mc.mode !== 'default' && mc.apiKey) {
+            modelOpts = {
+              customModel: true,
+              provider: mc.providerId,
+              model: mc.model,
+              baseUrl: mc.baseUrl,
+              apiKey: mc.apiKey,
+            };
+          }
+        } catch {}
+
         const response = await api.sendChat(
           text,
           state.activeConvoId ?? undefined,
-          { signal: abortController.signal } as any,
+          modelOpts,
         );
 
         const contentType = response.headers.get('content-type') || '';
@@ -253,11 +268,25 @@ export function useChat() {
       } catch (err) {
         const errMsg =
           err instanceof Error ? err.message : 'Unknown error';
-        dispatch({
-          type: 'UPDATE_LAST_MESSAGE',
-          content: `Error: ${errMsg}`,
-          done: true,
-        });
+
+        // Detect LLM / API key configuration errors
+        const llmErrorPatterns = ['LLM_PLANNER_API_KEY', 'No LLM', 'not configured', 'API key'];
+        const isLLMError = llmErrorPatterns.some(p => errMsg.includes(p));
+
+        if (isLLMError) {
+          localStorage.setItem('needsModelSetup', 'true');
+          dispatch({
+            type: 'UPDATE_LAST_MESSAGE',
+            content: '请先配置大模型。点击下方「默认大模型」按钮进行设置。',
+            done: true,
+          });
+        } else {
+          dispatch({
+            type: 'UPDATE_LAST_MESSAGE',
+            content: `Error: ${errMsg}`,
+            done: true,
+          });
+        }
         dispatch({ type: 'FINISH_MESSAGE', success: false });
       }
     },

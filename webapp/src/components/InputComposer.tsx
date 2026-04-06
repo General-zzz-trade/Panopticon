@@ -1,361 +1,209 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import type { Attachment } from '../types';
+import { ModelSettings, loadModelConfig, type ModelConfig } from './ModelSettings';
 
 const SLASH_COMMANDS = [
-  { cmd: 'Go to ',               desc: 'Open URL' },
-  { cmd: 'Fetch ',               desc: 'HTTP request' },
-  { cmd: 'Search for ',          desc: 'Web search' },
-  { cmd: 'Read file ',           desc: 'Read file' },
-  { cmd: 'Take a screenshot of ',desc: 'Screenshot' },
-  { cmd: 'Run command ',         desc: 'Shell' },
+  { cmd: 'Go to ', desc: 'Open URL' },
+  { cmd: 'Fetch ', desc: 'HTTP request' },
+  { cmd: 'Search for ', desc: 'Web search' },
+  { cmd: 'Read file ', desc: 'Read file' },
+  { cmd: 'Take a screenshot of ', desc: 'Screenshot' },
+  { cmd: 'Run command ', desc: 'Shell' },
 ];
 
 interface InputComposerProps {
   onSend: (text: string, attachments?: Attachment[]) => void;
   disabled?: boolean;
   history?: string[];
+  onOpenModelSettings?: () => void;
+  /** Increment this counter to externally trigger the model settings modal */
+  openModelSettingsTrigger?: number;
 }
 
-export function InputComposer({ onSend, disabled = false, history = [] }: InputComposerProps) {
+export function InputComposer({ onSend, disabled = false, history = [], onOpenModelSettings, openModelSettingsTrigger = 0 }: InputComposerProps) {
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [sending, setSending] = useState(false);
-  const [slashOpen, setSlashOpen] = useState(false);
-  const [slashMatches, setSlashMatches] = useState(SLASH_COMMANDS);
+  const [modelModalOpen, setModelModalOpen] = useState(false);
+  const [modelConfig, setModelConfig] = useState<ModelConfig>(loadModelConfig);
+  const [showSlash, setShowSlash] = useState(false);
   const [slashIdx, setSlashIdx] = useState(0);
-  const [suggestOpen, setSuggestOpen] = useState(false);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [historyIdx, setHistoryIdx] = useState(-1);
-
+  const [histIdx, setHistIdx] = useState(-1);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Open model settings modal when externally triggered
+  useEffect(() => {
+    if (openModelSettingsTrigger > 0) {
+      setModelModalOpen(true);
+    }
+  }, [openModelSettingsTrigger]);
+
   const canSend = (text.trim().length > 0 || attachments.length > 0) && !disabled && !sending;
 
-  // Auto-grow textarea
-  const adjustHeight = useCallback(() => {
+  // Auto-resize textarea
+  useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
     ta.style.height = 'auto';
     ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
-  }, []);
-
-  useEffect(() => {
-    adjustHeight();
-  }, [text, adjustHeight]);
-
-  // --- Slash command menu ---
-  const updateSlashMenu = useCallback(
-    (value: string) => {
-      if (value.startsWith('/') && !value.includes(' ')) {
-        const q = value.slice(1).toLowerCase();
-        const matches = SLASH_COMMANDS.filter(
-          (c) => c.cmd.toLowerCase().includes(q) || c.desc.toLowerCase().includes(q),
-        ).slice(0, 6);
-        if (matches.length) {
-          setSlashMatches(matches);
-          setSlashIdx(0);
-          setSlashOpen(true);
-          return;
-        }
-      }
-      setSlashOpen(false);
-    },
-    [],
-  );
-
-  // --- Typeahead suggestions ---
-  const updateSuggestions = useCallback(
-    (value: string) => {
-      const v = value.trim();
-      if (v.length < 3 || v.startsWith('/')) {
-        setSuggestOpen(false);
-        return;
-      }
-      const matches = history
-        .filter((h) => h.toLowerCase().includes(v.toLowerCase()) && h !== v)
-        .slice(0, 4);
-      if (matches.length) {
-        setSuggestions(matches);
-        setSuggestOpen(true);
-      } else {
-        setSuggestOpen(false);
-      }
-    },
-    [history],
-  );
-
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const val = e.target.value;
-    setText(val);
-    setHistoryIdx(-1);
-    updateSlashMenu(val);
-    updateSuggestions(val);
-  };
+  }, [text]);
 
   const doSend = useCallback(() => {
     if (!canSend) return;
     setSending(true);
-    const sendText = text.trim();
-    const sendAtts = attachments.length > 0 ? [...attachments] : undefined;
+    onSend(text.trim(), attachments.length > 0 ? attachments : undefined);
     setText('');
     setAttachments([]);
-    setSuggestOpen(false);
-    setSlashOpen(false);
-    onSend(sendText, sendAtts);
     setSending(false);
+    setHistIdx(-1);
   }, [canSend, text, attachments, onSend]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Slash menu navigation
-    if (slashOpen) {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setSlashOpen(false);
-        return;
-      }
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        const match = slashMatches[slashIdx];
-        if (match) {
-          setText(match.cmd);
-          setSlashOpen(false);
-          textareaRef.current?.focus();
-        }
-        return;
-      }
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setSlashIdx((prev) => (prev + 1) % slashMatches.length);
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setSlashIdx((prev) => (prev - 1 + slashMatches.length) % slashMatches.length);
-        return;
-      }
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (showSlash) {
+      if (e.key === 'Escape') { setShowSlash(false); return; }
+      if (e.key === 'ArrowDown') { e.preventDefault(); setSlashIdx(i => (i + 1) % SLASH_COMMANDS.length); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setSlashIdx(i => (i - 1 + SLASH_COMMANDS.length) % SLASH_COMMANDS.length); return; }
+      if (e.key === 'Enter') { e.preventDefault(); setText(SLASH_COMMANDS[slashIdx].cmd); setShowSlash(false); return; }
     }
-
-    // Suggestion dropdown
-    if (suggestOpen && e.key === 'Escape') {
-      e.preventDefault();
-      setSuggestOpen(false);
-      return;
-    }
-
-    // Send on Enter (no modifier)
-    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
-      e.preventDefault();
-      doSend();
-      return;
-    }
-
-    // History navigation
-    if (e.key === 'ArrowUp' && text === '' && history.length > 0) {
-      e.preventDefault();
-      const nextIdx = Math.min(historyIdx + 1, history.length - 1);
-      setHistoryIdx(nextIdx);
-      setText(history[nextIdx]);
-      return;
-    }
-    if (e.key === 'ArrowDown' && historyIdx >= 0) {
-      e.preventDefault();
-      const nextIdx = historyIdx - 1;
-      setHistoryIdx(nextIdx);
-      setText(nextIdx < 0 ? '' : history[nextIdx]);
-      return;
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); return; }
+    if (e.key === 'ArrowUp' && text === '' && history.length > 0) { e.preventDefault(); const idx = Math.min(histIdx + 1, history.length - 1); setHistIdx(idx); setText(history[idx]); }
+    if (e.key === 'ArrowDown' && histIdx >= 0) { e.preventDefault(); const idx = histIdx - 1; setHistIdx(idx); setText(idx < 0 ? '' : history[idx]); }
   };
 
-  // --- File handling ---
-  const addFile = useCallback((file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      setAttachments((prev) => [
-        ...prev,
-        {
-          name: file.name,
-          type: file.type,
-          size: file.size,
-          dataUrl: reader.result as string,
-        },
-      ]);
-    };
-    reader.readAsDataURL(file);
-  }, []);
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-    Array.from(files).forEach(addFile);
-    e.target.value = '';
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setText(val);
+    setShowSlash(val.startsWith('/') && !val.includes(' '));
+    setSlashIdx(0);
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    for (const item of Array.from(items)) {
+    for (const item of e.clipboardData.items) {
       if (item.type.startsWith('image/')) {
         const file = item.getAsFile();
-        if (file) {
-          addFile(file);
-          e.preventDefault();
-        }
+        if (file) addFile(file);
+        e.preventDefault();
       }
     }
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.currentTarget.classList.add('border-blue-500');
+  const addFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => setAttachments(a => [...a, { name: file.name, type: file.type, size: file.size, dataUrl: reader.result as string }]);
+    reader.readAsDataURL(file);
   };
 
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.currentTarget.classList.remove('border-blue-500');
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.currentTarget.classList.remove('border-blue-500');
-    Array.from(e.dataTransfer.files).forEach(addFile);
-  };
-
-  const removeAttachment = (idx: number) => {
-    setAttachments((prev) => prev.filter((_, i) => i !== idx));
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    for (const f of Array.from(e.target.files || [])) addFile(f);
+    e.target.value = '';
   };
 
   return (
-    <div className="border-t border-gray-200 p-4 dark:border-gray-700">
-      {/* Attachment preview strip */}
+    <div>
+      {/* Slash command dropdown */}
+      {showSlash && (
+        <div className="mb-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-900 shadow-lg overflow-hidden">
+          {SLASH_COMMANDS.filter(c => {
+            const q = text.slice(1).toLowerCase();
+            return !q || c.cmd.toLowerCase().includes(q) || c.desc.toLowerCase().includes(q);
+          }).map((c, i) => (
+            <button key={c.cmd} onClick={() => { setText(c.cmd); setShowSlash(false); textareaRef.current?.focus(); }}
+              className={`w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm transition ${i === slashIdx ? 'bg-blue-50 dark:bg-blue-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
+              <span className="text-gray-400 mono text-xs">/</span>
+              <span className="font-medium">{c.cmd.trim()}</span>
+              <span className="text-gray-400 text-xs">{c.desc}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Attachment chips */}
       {attachments.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-2">
-          {attachments.map((att, i) => (
-            <div
-              key={i}
-              className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-2 py-1 text-xs dark:bg-gray-800"
-            >
-              <span>{att.type.startsWith('image/') ? '\ud83d\uddbc' : '\ud83d\udcc4'}</span>
-              <span className="max-w-[10rem] truncate">{att.name}</span>
-              <button
-                className="ml-1 text-gray-500 hover:text-red-600"
-                onClick={() => removeAttachment(i)}
-              >
-                \u00d7
-              </button>
+        <div className="flex flex-wrap gap-2 mb-2">
+          {attachments.map((a, i) => (
+            <div key={i} className="flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg px-2.5 py-1 text-xs">
+              <span>{a.type.startsWith('image/') ? '🖼' : '📄'}</span>
+              <span className="max-w-24 truncate">{a.name}</span>
+              <button onClick={() => setAttachments(at => at.filter((_, j) => j !== i))} className="text-gray-400 hover:text-red-500 ml-0.5">×</button>
             </div>
           ))}
         </div>
       )}
 
-      <div className="relative">
-        {/* Slash command dropdown */}
-        {slashOpen && (
-          <div className="absolute bottom-full left-0 z-50 mb-1 w-64 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
-            {slashMatches.map((cmd, i) => (
-              <div
-                key={cmd.cmd}
-                className={`cursor-pointer px-3 py-2 text-sm ${
-                  i === slashIdx
-                    ? 'bg-gray-100 dark:bg-gray-800'
-                    : 'hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  setText(cmd.cmd);
-                  setSlashOpen(false);
-                  textareaRef.current?.focus();
-                }}
-              >
-                <div className="font-mono text-xs">{cmd.cmd}</div>
-                <div className="text-xs text-gray-500">{cmd.desc}</div>
-              </div>
-            ))}
+      {/* Input box */}
+      <div className="relative border border-gray-200 dark:border-gray-700 rounded-2xl bg-white dark:bg-gray-800 focus-within:border-blue-300 dark:focus-within:border-blue-700 focus-within:ring-2 focus-within:ring-blue-100 dark:focus-within:ring-blue-900/30 transition">
+        <textarea ref={textareaRef}
+          className="w-full resize-none bg-transparent px-4 pt-3 pb-2 text-sm placeholder-gray-400 focus:outline-none"
+          placeholder="可以描述任务或提问任何问题"
+          rows={1}
+          value={text}
+          disabled={disabled || sending}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          onDragOver={e => e.preventDefault()}
+          onDrop={e => { e.preventDefault(); for (const f of Array.from(e.dataTransfer.files)) addFile(f); }}
+        />
+
+        {/* Bottom toolbar inside input box */}
+        <div className="flex items-center justify-between px-3 pb-2">
+          <div className="flex items-center gap-1">
+            {/* Model selector */}
+            <button onClick={() => setModelModalOpen(true)} className="flex items-center gap-1 px-2.5 py-1 text-xs text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+              <span>{modelConfig.mode === 'default' ? '默认大模型' : modelConfig.providerName || '自定义模型'}</span>
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/></svg>
+            </button>
+
+            {/* Skills */}
+            <button className="flex items-center gap-1 px-2.5 py-1 text-xs text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5"/></svg>
+              <span>技能</span>
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/></svg>
+            </button>
+
+            {/* Attach */}
+            <button onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-1 px-2.5 py-1 text-xs text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+            </button>
+            <input ref={fileInputRef} type="file" className="hidden" multiple onChange={handleFileChange} />
           </div>
-        )}
-
-        {/* Typeahead suggestions dropdown */}
-        {suggestOpen && !slashOpen && (
-          <div className="absolute bottom-full left-0 z-50 mb-1 w-full overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
-            {suggestions.map((s, i) => (
-              <div
-                key={i}
-                className="cursor-pointer truncate px-3 py-2 text-xs hover:bg-gray-100 dark:hover:bg-gray-800"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  setText(s);
-                  setSuggestOpen(false);
-                  textareaRef.current?.focus();
-                }}
-              >
-                {s}
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="flex items-end gap-3">
-          {/* Attach button */}
-          <button
-            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-            title="Attach file"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
-              />
-            </svg>
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            className="hidden"
-            multiple
-            onChange={handleFileChange}
-          />
-
-          {/* Textarea */}
-          <textarea
-            ref={textareaRef}
-            className="flex-1 resize-none rounded-lg border border-gray-300 bg-white p-3 text-sm text-gray-900 placeholder-gray-500 transition focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-            placeholder="Type a message... (/ for commands)"
-            rows={1}
-            value={text}
-            disabled={disabled || sending}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-          />
 
           {/* Send button */}
-          <button
-            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white transition hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={!canSend}
-            onClick={doSend}
-            title="Send message"
-          >
+          <button disabled={!canSend} onClick={doSend}
+            className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white transition disabled:cursor-not-allowed">
             {sending ? (
-              <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                />
-              </svg>
+              <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
             ) : (
-              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-              </svg>
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
             )}
           </button>
         </div>
       </div>
+
+      {/* Disclaimer / demo mode hint */}
+      {modelConfig.mode === 'default' ? (
+        <p className="text-center text-[10px] text-gray-400 mt-2">
+          💡 使用默认模型 ·{' '}
+          <button
+            onClick={() => { onOpenModelSettings ? onOpenModelSettings() : setModelModalOpen(true); }}
+            className="text-blue-500 hover:text-blue-600 hover:underline transition"
+          >
+            配置自定义模型
+          </button>
+        </p>
+      ) : (
+        <p className="text-center text-[10px] text-gray-400 mt-2">内容由AI生成，请仔细甄别</p>
+      )}
+
+      {/* Model settings modal */}
+      <ModelSettings
+        open={modelModalOpen}
+        onClose={() => setModelModalOpen(false)}
+        onSave={(cfg) => setModelConfig(cfg)}
+      />
     </div>
   );
 }

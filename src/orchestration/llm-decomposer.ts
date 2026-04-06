@@ -20,7 +20,7 @@ export interface DecompositionResult {
   rationale: string;
 }
 
-const SYSTEM_PROMPT = `You are a task decomposition agent. Given a complex goal, break it into independent or dependent sub-goals.
+const SYSTEM_PROMPT = `You are an OSINT task decomposition agent. Given a complex reconnaissance goal, break it into independent or dependent sub-goals.
 
 Rules:
 - Each sub-goal should be self-contained and executable independently (when dependencies are met)
