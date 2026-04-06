@@ -40,8 +40,8 @@ Plus: investigation chain automation (5 templates), scheduled monitoring with ch
 ## Quick Start
 
 ```bash
-git clone https://github.com/General-zzz-trade/Agent-orchestrator.git
-cd Agent-orchestrator
+git clone https://github.com/General-zzz-trade/Panopticon.git
+cd Panopticon
 npm install
 
 # Start the server (no API keys needed for OSINT)

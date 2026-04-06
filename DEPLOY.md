@@ -4,8 +4,8 @@
 
 ```bash
 # 1. 克隆并安装
-git clone https://github.com/General-zzz-trade/Agent-orchestrator.git
-cd Agent-orchestrator
+git clone https://github.com/General-zzz-trade/Panopticon.git
+cd Panopticon
 npm install
 
 # 2. 启动（OSINT 模块无需 API Key）

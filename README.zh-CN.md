@@ -40,8 +40,8 @@
 ## 快速开始
 
 ```bash
-git clone https://github.com/General-zzz-trade/Agent-orchestrator.git
-cd Agent-orchestrator
+git clone https://github.com/General-zzz-trade/Panopticon.git
+cd Panopticon
 npm install
 
 # 启动（OSINT 无需 API Key）
