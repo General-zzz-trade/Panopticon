@@ -4,6 +4,7 @@ import { JobQueue, JobRequest } from "./queue";
 import { incCounter, setGauge } from "../observability/metrics-store";
 import { upsertRun } from "../db/runs-repo";
 import { logModuleError } from "../core/module-logger";
+import { ensureBus } from "../streaming/event-bus";
 
 const DEFAULT_CONCURRENCY = Number(process.env.WORKER_CONCURRENCY ?? 4);
 
@@ -22,9 +23,20 @@ async function processJob(job: JobRequest): Promise<void> {
   incCounter("agent_runs_total");
   updateQueueGauges();
   try {
-    const ctx = await runGoal(job.goal, { ...(job.options as Record<string, unknown>), tenantId: job.tenantId } as never);
+    const ctx = await runGoal(job.goal, { ...(job.options as Record<string, unknown>), tenantId: job.tenantId, runId: job.runId } as never);
     // Persist with tenant scoping
     upsertRun(ctx, job.tenantId);
+    // Conversation continuity: record turn back into conversation
+    const convoId = (job.options as Record<string, unknown>).conversationId as string | undefined;
+    if (convoId) {
+      try {
+        const { getConversation, recordTurn } = await import("../session/conversation");
+        const conv = getConversation(convoId);
+        if (conv) recordTurn(conv, ctx);
+      } catch (err) {
+        logModuleError("pool", "optional", err, "recording conversation turn");
+      }
+    }
     if (ctx.result?.success) {
       incCounter("agent_runs_success_total");
     } else {
@@ -60,6 +72,8 @@ export function submitJob(runId: string, goal: string, options: Record<string, u
     submittedAt: new Date().toISOString()
   };
   setRunStatus(runId, "pending");
+  // Pre-register event bus so SSE subscribers can connect before worker starts
+  ensureBus(runId);
   getQueue().enqueue(job);
   updateQueueGauges();
 }

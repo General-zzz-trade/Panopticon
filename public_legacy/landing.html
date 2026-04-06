@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Orchestrator — AI that browses, codes, and automates for you</title>
+<script>tailwind={config:{darkMode:'class'}}</script>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+  @keyframes fadeInUp { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes pulse-ring { 0%{transform:scale(.9);opacity:.7} 50%{transform:scale(1);opacity:1} 100%{transform:scale(.9);opacity:.7} }
+  .animate-float { animation: float 6s ease-in-out infinite }
+  .animate-fade-in-up { animation: fadeInUp .7s ease-out both }
+  .delay-100 { animation-delay: .1s }
+  .delay-200 { animation-delay: .2s }
+  .delay-300 { animation-delay: .3s }
+  .delay-400 { animation-delay: .4s }
+  .delay-500 { animation-delay: .5s }
+  .gradient-text { background: linear-gradient(135deg, #3b82f6, #8b5cf6, #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .card-hover { transition: all .2s ease; }
+  .card-hover:hover { transform: translateY(-4px); box-shadow: 0 20px 40px rgba(0,0,0,.1); }
+  .dark .card-hover:hover { box-shadow: 0 20px 40px rgba(0,0,0,.4); }
+  .grid-bg { background-image: radial-gradient(circle at 1px 1px, rgba(148,163,184,.15) 1px, transparent 0); background-size: 40px 40px; }
+</style>
+<script>
+  if(localStorage.getItem('theme')==='dark'||(!localStorage.getItem('theme')&&window.matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark')}
+</script>
+</head>
+<body class="bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100 antialiased">
+
+<!-- Nav -->
+<nav class="fixed top-0 inset-x-0 z-50 bg-white/80 dark:bg-gray-950/80 backdrop-blur-lg border-b border-gray-200 dark:border-gray-800">
+  <div class="max-w-7xl mx-auto flex items-center justify-between px-6 h-16">
+    <div class="flex items-center gap-2">
+      <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center">
+        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+      </div>
+      <span class="font-bold text-lg tracking-tight">Agent Orchestrator</span>
+    </div>
+    <div class="hidden md:flex items-center gap-8 text-sm text-gray-600 dark:text-gray-400">
+      <a href="#features" class="hover:text-gray-900 dark:hover:text-white transition">Features</a>
+      <a href="#how-it-works" class="hover:text-gray-900 dark:hover:text-white transition">How it works</a>
+      <a href="#pricing" class="hover:text-gray-900 dark:hover:text-white transition">Pricing</a>
+      <a href="/api/v1/docs" class="hover:text-gray-900 dark:hover:text-white transition">API Docs</a>
+    </div>
+    <div class="flex items-center gap-3">
+      <button onclick="document.documentElement.classList.toggle('dark');localStorage.setItem('theme',document.documentElement.classList.contains('dark')?'dark':'light')" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition" aria-label="Toggle dark mode">
+        <svg class="w-5 h-5 hidden dark:block" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m8.66-13.66l-.71.71M4.05 19.95l-.71.71M21 12h-1M4 12H3m16.66 5.66l-.71-.71M4.05 4.05l-.71-.71M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+        <svg class="w-5 h-5 block dark:hidden" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.005 9.005 0 0012 21a9.005 9.005 0 008.354-5.646z"/></svg>
+      </button>
+      <a href="/" class="px-4 py-2 text-sm font-medium rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 transition">Open App</a>
+    </div>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="relative pt-32 pb-20 md:pt-44 md:pb-32 overflow-hidden grid-bg">
+  <div class="absolute inset-0 bg-gradient-to-b from-blue-50/50 to-transparent dark:from-blue-950/20 dark:to-transparent"></div>
+  <div class="relative max-w-4xl mx-auto px-6 text-center">
+    <div class="animate-fade-in-up">
+      <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 mb-6">
+        <span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+        Now in public beta
+      </div>
+    </div>
+    <h1 class="animate-fade-in-up delay-100 text-4xl md:text-6xl lg:text-7xl font-bold tracking-tight leading-tight">
+      AI that <span class="gradient-text">browses, codes,</span><br>and automates for you
+    </h1>
+    <p class="animate-fade-in-up delay-200 mt-6 text-lg md:text-xl text-gray-600 dark:text-gray-400 max-w-2xl mx-auto leading-relaxed">
+      Agent Orchestrator is a cognitive runtime that plans tasks from natural language, executes them across browsers, APIs, and shells, then verifies results and self-recovers from failures.
+    </p>
+    <div class="animate-fade-in-up delay-300 mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
+      <a href="/" class="w-full sm:w-auto px-8 py-3.5 text-sm font-medium rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 transition shadow-lg shadow-gray-900/10 dark:shadow-black/20">
+        Get started free
+      </a>
+      <a href="/api/v1/docs" class="w-full sm:w-auto px-8 py-3.5 text-sm font-medium rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-900 transition">
+        View API docs
+      </a>
+    </div>
+    <p class="animate-fade-in-up delay-400 mt-4 text-xs text-gray-500 dark:text-gray-500">No credit card required. 50 free runs per month.</p>
+  </div>
+</section>
+
+<!-- Features -->
+<section id="features" class="py-20 md:py-28">
+  <div class="max-w-6xl mx-auto px-6">
+    <div class="text-center mb-16">
+      <h2 class="text-3xl md:text-4xl font-bold tracking-tight">Everything you need to automate</h2>
+      <p class="mt-4 text-gray-600 dark:text-gray-400 max-w-xl mx-auto">Three powerful capabilities in one runtime, all orchestrated by a cognitive planning engine.</p>
+    </div>
+    <div class="grid md:grid-cols-3 gap-6">
+      <!-- Card 1 -->
+      <div class="card-hover p-8 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
+        <div class="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-950/50 flex items-center justify-center mb-5">
+          <svg class="w-6 h-6 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+        </div>
+        <h3 class="text-lg font-semibold mb-2">Browser Automation</h3>
+        <p class="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">Click, type, navigate, and extract data from any website. Powered by Playwright with visual verification and smart selectors that adapt to DOM changes.</p>
+      </div>
+      <!-- Card 2 -->
+      <div class="card-hover p-8 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
+        <div class="w-12 h-12 rounded-xl bg-violet-50 dark:bg-violet-950/50 flex items-center justify-center mb-5">
+          <svg class="w-6 h-6 text-violet-600 dark:text-violet-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+        </div>
+        <h3 class="text-lg font-semibold mb-2">API Integration</h3>
+        <p class="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">Call any REST or GraphQL API, chain requests, parse responses, and integrate with your existing tools. Full HTTP handler with auth, headers, and body support.</p>
+      </div>
+      <!-- Card 3 -->
+      <div class="card-hover p-8 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
+        <div class="w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 flex items-center justify-center mb-5">
+          <svg class="w-6 h-6 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+        </div>
+        <h3 class="text-lg font-semibold mb-2">Smart Recovery</h3>
+        <p class="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">When things fail, the agent generates hypotheses, runs experiments, and applies Bayesian belief updates to find the best recovery path automatically.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- How It Works -->
+<section id="how-it-works" class="py-20 md:py-28 bg-gray-50 dark:bg-gray-900/50">
+  <div class="max-w-5xl mx-auto px-6">
+    <div class="text-center mb-16">
+      <h2 class="text-3xl md:text-4xl font-bold tracking-tight">How it works</h2>
+      <p class="mt-4 text-gray-600 dark:text-gray-400">Three steps. Zero config. Fully autonomous.</p>
+    </div>
+    <div class="grid md:grid-cols-3 gap-8">
+      <div class="text-center">
+        <div class="w-16 h-16 rounded-2xl bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center mx-auto mb-5">
+          <span class="text-2xl font-bold text-blue-600 dark:text-blue-400">1</span>
+        </div>
+        <h3 class="text-lg font-semibold mb-2">Describe</h3>
+        <p class="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">Type a goal in plain English. "Log into my dashboard, export the report as CSV, and email it to the team."</p>
+      </div>
+      <div class="text-center">
+        <div class="w-16 h-16 rounded-2xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center mx-auto mb-5">
+          <span class="text-2xl font-bold text-violet-600 dark:text-violet-400">2</span>
+        </div>
+        <h3 class="text-lg font-semibold mb-2">Watch</h3>
+        <p class="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">The agent plans, executes, and verifies each step in real-time. See the browser, API calls, and decisions as they happen.</p>
+      </div>
+      <div class="text-center">
+        <div class="w-16 h-16 rounded-2xl bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center mx-auto mb-5">
+          <span class="text-2xl font-bold text-emerald-600 dark:text-emerald-400">3</span>
+        </div>
+        <h3 class="text-lg font-semibold mb-2">Done</h3>
+        <p class="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">Results are verified at three levels. Artifacts are saved. A full audit trail is recorded for every run.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Pricing -->
+<section id="pricing" class="py-20 md:py-28">
+  <div class="max-w-5xl mx-auto px-6">
+    <div class="text-center mb-16">
+      <h2 class="text-3xl md:text-4xl font-bold tracking-tight">Simple, transparent pricing</h2>
+      <p class="mt-4 text-gray-600 dark:text-gray-400">Start free. Scale when you need to.</p>
+    </div>
+    <div class="grid md:grid-cols-3 gap-6">
+      <!-- Free -->
+      <div class="card-hover p-8 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
+        <h3 class="text-lg font-semibold">Free</h3>
+        <div class="mt-4 flex items-baseline gap-1">
+          <span class="text-4xl font-bold">$0</span>
+          <span class="text-gray-500 dark:text-gray-400 text-sm">/month</span>
+        </div>
+        <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">For personal projects and exploration.</p>
+        <ul class="mt-6 space-y-3 text-sm text-gray-600 dark:text-gray-400">
+          <li class="flex items-center gap-2"><svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>50 runs / month</li>
+          <li class="flex items-center gap-2"><svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>100K tokens</li>
+          <li class="flex items-center gap-2"><svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>5 concurrent runs</li>
+          <li class="flex items-center gap-2"><svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>Community support</li>
+        </ul>
+        <a href="/" class="mt-8 block w-full py-2.5 text-center text-sm font-medium rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition">Get started</a>
+      </div>
+      <!-- Pro -->
+      <div class="card-hover relative p-8 rounded-2xl border-2 border-blue-500 bg-white dark:bg-gray-900 shadow-lg shadow-blue-500/10">
+        <div class="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full text-xs font-medium bg-blue-500 text-white">Most popular</div>
+        <h3 class="text-lg font-semibold">Pro</h3>
+        <div class="mt-4 flex items-baseline gap-1">
+          <span class="text-4xl font-bold">$29</span>
+          <span class="text-gray-500 dark:text-gray-400 text-sm">/month</span>
+        </div>
+        <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">For teams shipping with automation.</p>
+        <ul class="mt-6 space-y-3 text-sm text-gray-600 dark:text-gray-400">
+          <li class="flex items-center gap-2"><svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>500 runs / month</li>
+          <li class="flex items-center gap-2"><svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>1M tokens</li>
+          <li class="flex items-center gap-2"><svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>20 concurrent runs</li>
+          <li class="flex items-center gap-2"><svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>LLM-powered planning</li>
+          <li class="flex items-center gap-2"><svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>Priority support</li>
+        </ul>
+        <a href="/" class="mt-8 block w-full py-2.5 text-center text-sm font-medium rounded-xl bg-blue-500 text-white hover:bg-blue-600 transition">Upgrade to Pro</a>
+      </div>
+      <!-- Enterprise -->
+      <div class="card-hover p-8 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
+        <h3 class="text-lg font-semibold">Enterprise</h3>
+        <div class="mt-4 flex items-baseline gap-1">
+          <span class="text-4xl font-bold">Custom</span>
+        </div>
+        <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">For organizations with advanced needs.</p>
+        <ul class="mt-6 space-y-3 text-sm text-gray-600 dark:text-gray-400">
+          <li class="flex items-center gap-2"><svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>Unlimited runs</li>
+          <li class="flex items-center gap-2"><svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>Unlimited tokens</li>
+          <li class="flex items-center gap-2"><svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>SSO / SAML</li>
+          <li class="flex items-center gap-2"><svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>Custom SLA</li>
+          <li class="flex items-center gap-2"><svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>On-prem deployment</li>
+        </ul>
+        <a href="mailto:sales@agentorchestrator.dev" class="mt-8 block w-full py-2.5 text-center text-sm font-medium rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition">Contact sales</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="py-20 md:py-28 bg-gray-50 dark:bg-gray-900/50">
+  <div class="max-w-3xl mx-auto px-6 text-center">
+    <h2 class="text-3xl md:text-4xl font-bold tracking-tight">Ready to automate?</h2>
+    <p class="mt-4 text-gray-600 dark:text-gray-400">Get started in under a minute. No credit card required.</p>
+    <div class="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
+      <a href="/" class="w-full sm:w-auto px-8 py-3.5 text-sm font-medium rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 transition shadow-lg">Open the app</a>
+      <a href="/api/v1/docs" class="w-full sm:w-auto px-8 py-3.5 text-sm font-medium rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-white dark:hover:bg-gray-900 transition">API documentation</a>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer class="border-t border-gray-200 dark:border-gray-800 py-12">
+  <div class="max-w-6xl mx-auto px-6">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-8">
+      <div>
+        <h4 class="font-semibold text-sm mb-4">Product</h4>
+        <ul class="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+          <li><a href="/" class="hover:text-gray-900 dark:hover:text-white transition">App</a></li>
+          <li><a href="#features" class="hover:text-gray-900 dark:hover:text-white transition">Features</a></li>
+          <li><a href="#pricing" class="hover:text-gray-900 dark:hover:text-white transition">Pricing</a></li>
+          <li><a href="/api/v1/docs" class="hover:text-gray-900 dark:hover:text-white transition">API Docs</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4 class="font-semibold text-sm mb-4">Resources</h4>
+        <ul class="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+          <li><a href="#" class="hover:text-gray-900 dark:hover:text-white transition">Documentation</a></li>
+          <li><a href="#" class="hover:text-gray-900 dark:hover:text-white transition">Changelog</a></li>
+          <li><a href="#" class="hover:text-gray-900 dark:hover:text-white transition">Status</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4 class="font-semibold text-sm mb-4">Company</h4>
+        <ul class="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+          <li><a href="#" class="hover:text-gray-900 dark:hover:text-white transition">About</a></li>
+          <li><a href="#" class="hover:text-gray-900 dark:hover:text-white transition">Blog</a></li>
+          <li><a href="#" class="hover:text-gray-900 dark:hover:text-white transition">Careers</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4 class="font-semibold text-sm mb-4">Legal</h4>
+        <ul class="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+          <li><a href="#" class="hover:text-gray-900 dark:hover:text-white transition">Privacy</a></li>
+          <li><a href="#" class="hover:text-gray-900 dark:hover:text-white transition">Terms</a></li>
+          <li><a href="#" class="hover:text-gray-900 dark:hover:text-white transition">Security</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="mt-12 pt-8 border-t border-gray-200 dark:border-gray-800 flex flex-col md:flex-row items-center justify-between gap-4 text-sm text-gray-500 dark:text-gray-500">
+      <p>Agent Orchestrator. Built for automation.</p>
+      <p>Made with care.</p>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

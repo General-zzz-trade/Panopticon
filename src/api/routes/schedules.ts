@@ -31,14 +31,14 @@ export async function schedulesRoutes(app: FastifyInstance): Promise<void> {
 
       const id = randomBytes(8).toString("hex");
       const nextRunAt = nextCronDate(cronExpr).toISOString();
-      const record = createSchedule({ id, name, goal, cronExpr, tenantId: request.tenantId, enabled: true, nextRunAt });
+      const record = createSchedule({ id, name, goal, cronExpr, tenantId: request.tenantId || "default", enabled: true, nextRunAt });
       return reply.code(201).send(record);
     }
   );
 
   // GET /schedules — list schedules
   app.get("/schedules", async (request, reply) => {
-    return reply.send({ schedules: listSchedules(request.tenantId) });
+    return reply.send({ schedules: listSchedules(request.tenantId || "default") });
   });
 
   // GET /schedules/:id

@@ -10,6 +10,7 @@ import { observeEnvironment } from "../cognition/observation-engine";
 import { updateWorldState } from "../cognition/state-store";
 import type { AgentObservation, CognitiveDecision } from "../cognition/types";
 import { executeTask } from "./executor";
+import { publishEvent } from "../streaming/event-bus";
 import { verifyActionResult } from "../verifier/action-verifier";
 import { verifyGoalProgress } from "../verifier/goal-verifier";
 import { verifyStateResult } from "../verifier/state-verifier";
@@ -87,6 +88,16 @@ export async function runTaskPipeline(
   pipeline: TaskPipelineContext
 ): Promise<TaskPipelineResult> {
   const task = context.tasks[index];
+  const taskStartedAt = Date.now();
+  publishEvent({
+    type: "task_start",
+    runId: context.runId,
+    taskId: task.id,
+    taskType: task.type,
+    timestamp: new Date().toISOString(),
+    summary: taskSummary(task),
+    payload: { index, total: context.tasks.length }
+  });
   const beforeObservation = await observeAndRecord(context, task, "Pre-task observation");
   recordWorldState(context, updateWorldState(context.worldState!, {
     observation: beforeObservation
@@ -297,9 +308,39 @@ export async function runTaskPipeline(
     // Proactive exploration at checkpoints
     runProactiveExploration(context, task, pipeline.causalGraph, index);
 
+    publishEvent({
+      type: "task_done",
+      runId: context.runId,
+      taskId: task.id,
+      taskType: task.type,
+      timestamp: new Date().toISOString(),
+      summary: taskSummary(task),
+      durationMs: Date.now() - taskStartedAt,
+      success: true,
+      payload: {
+        index,
+        confidence: cognitiveDecision.confidence,
+        actionVerified: actionVerification.passed,
+        stateVerified: stateVerification.passed
+      }
+    });
+
     return { outcome: "continue", nextIndex: index + 1 };
   } catch (error) {
     const message = getErrorMessage(error);
+
+    publishEvent({
+      type: "task_failed",
+      runId: context.runId,
+      taskId: task.id,
+      taskType: task.type,
+      timestamp: new Date().toISOString(),
+      summary: taskSummary(task),
+      durationMs: Date.now() - taskStartedAt,
+      success: false,
+      error: message,
+      payload: { index }
+    });
 
     // Working memory: record failure pattern
     recordFailurePattern(pipeline.workingMemory, task, message);
@@ -343,6 +384,21 @@ export async function runTaskPipeline(
 }
 
 /**
+ * Build a short human-readable label for a task (for UI events).
+ */
+function taskSummary(task: AgentTask): string {
+  const p = task.payload as Record<string, unknown> | undefined;
+  const url = p?.url as string | undefined;
+  const selector = p?.selector as string | undefined;
+  const text = p?.text as string | undefined;
+  const bits: string[] = [String(task.type)];
+  if (url) bits.push(url);
+  if (selector) bits.push(selector);
+  if (text) bits.push(`"${String(text).slice(0, 40)}"`);
+  return bits.join(" · ");
+}
+
+/**
  * Observe environment and record to context.
  */
 async function observeAndRecord(
@@ -362,6 +418,20 @@ async function observeAndRecord(
     summary,
     observationId: observation.id,
     metadata: { confidence: observation.confidence, anomalyCount: observation.anomalies.length }
+  });
+  publishEvent({
+    type: "observation",
+    runId: context.runId,
+    taskId: task.id,
+    timestamp: new Date().toISOString(),
+    summary,
+    payload: {
+      pageUrl: observation.pageUrl,
+      appState: observation.appStateGuess,
+      confidence: observation.confidence,
+      anomalies: observation.anomalies.length,
+      elementCount: observation.actionableElements?.length ?? 0
+    }
   });
   return observation;
 }

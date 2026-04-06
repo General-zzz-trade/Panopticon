@@ -25,6 +25,24 @@ import { renderPrometheus } from "../observability/metrics-store";
 import { listPlugins } from "../plugins/registry";
 import { getKnowledgeStats } from "../knowledge/store";
 import { initAuditTable, rateLimitHook, auditLog } from "./security";
+// ── New modules (20-feature expansion) ──
+import { authRoutes } from "./routes/auth";
+import { billingRoutes } from "./routes/billing";
+import { docsRoutes } from "./routes/docs";
+import { customToolsRoutes } from "./routes/custom-tools";
+import { workflowRoutes } from "./routes/workflows";
+import { logsRoutes } from "./routes/logs";
+import { mcpRoutes } from "../mcp/adapter";
+import { setupWebSocket } from "./routes/ws";
+import { recoverStaleRuns } from "../core/crash-recovery";
+import { initUsersTable } from "../db/users";
+import { chatRoutes } from "./routes/chat";
+import { feedbackRoutes, initFeedbackTable } from "./routes/feedback";
+import { conversationForkRoutes } from "./routes/conversation-fork";
+// ── Batch 2: commercialization + tech evolution ──
+import { templateRoutes } from "./routes/templates";
+import { schedulesEnhancedRoutes } from "./routes/schedules-enhanced";
+import { webhookRoutes } from "./routes/webhooks";
 
 export async function buildServer() {
   initApiKeysTable();
@@ -32,13 +50,34 @@ export async function buildServer() {
   initUserMemoryTable();
   initAuditTable();
   initSessionTable();
+  initUsersTable();
+  initFeedbackTable();
+
+  // Crash recovery: mark stale runs from previous crash
+  try {
+    const recovery = recoverStaleRuns();
+    if (recovery.recovered > 0) {
+      console.log(`Crash recovery: marked ${recovery.recovered} stale run(s) as failed`);
+    }
+  } catch (err) {
+    console.error("Crash recovery error:", err);
+  }
+
   const app = Fastify({ logger: false });
 
   await app.register(cors, { origin: true });
 
-  // Serve Web UI from public/ directory
-  const publicDir = join(__dirname, "../../public");
+  // Serve React app from webapp/dist/ (built via: cd webapp && npm run build)
+  const publicDir = join(__dirname, "../../webapp/dist");
   await app.register(staticFiles, { root: publicDir, prefix: "/" });
+
+  // SPA fallback: serve index.html for all non-API, non-file routes (react-router)
+  app.setNotFoundHandler((request, reply) => {
+    if (request.url.startsWith("/api/") || request.url.startsWith("/health") || request.url.startsWith("/metrics")) {
+      return reply.code(404).send({ error: "Not Found" });
+    }
+    return reply.sendFile("index.html");
+  });
 
   // Rate limiting on all API routes
   app.addHook("preHandler", rateLimitHook);
@@ -57,6 +96,35 @@ export async function buildServer() {
   await app.register(reactRoutes, { prefix: "/api/v1" });
   await app.register(computerUseRoutes, { prefix: "/api/v1" });
   await app.register(explainRoutes, { prefix: "/api/v1" });
+
+  // ── New routes (20-feature expansion) ──
+  await app.register(authRoutes, { prefix: "/api/v1" });
+  await app.register(billingRoutes, { prefix: "/api/v1" });
+  await app.register(docsRoutes, { prefix: "/api/v1" });
+  await app.register(customToolsRoutes, { prefix: "/api/v1" });
+  await app.register(mcpRoutes, { prefix: "/api/v1" });
+  await app.register(workflowRoutes, { prefix: "/api/v1" });
+  await app.register(logsRoutes, { prefix: "/api/v1" });
+
+  // Chat endpoint — conversational LLM layer (the key missing piece)
+  await app.register(chatRoutes, { prefix: "/api/v1" });
+
+  // Feedback and conversation fork routes
+  await app.register(feedbackRoutes, { prefix: "/api/v1" });
+  await app.register(conversationForkRoutes, { prefix: "/api/v1" });
+
+  // ── Batch 2: commercialization routes ──
+  await app.register(templateRoutes, { prefix: "/api/v1" });
+  await app.register(schedulesEnhancedRoutes, { prefix: "/api/v1" });
+  await app.register(webhookRoutes, { prefix: "/api/v1" });
+
+  // Landing page
+  app.get("/landing", async (_req, reply) => {
+    return reply.sendFile("landing.html");
+  });
+
+  // WebSocket support (bidirectional, alongside SSE)
+  setupWebSocket(app);
 
   // Health endpoint with full heartbeat report
   const { generateHeartbeat, startHeartbeat } = require("../observability/heartbeat");
@@ -127,6 +195,16 @@ async function main() {
   console.log(`  POST /api/v1/approvals/:id/respond - approve/reject task`);
   console.log(`  GET  /api/v1/sessions            - list saved sessions`);
   console.log(`  DELETE /api/v1/sessions/:domain   - delete session`);
+  console.log(`  POST /api/v1/auth/register   - user registration`);
+  console.log(`  POST /api/v1/auth/login      - user login (JWT)`);
+  console.log(`  GET  /api/v1/billing/usage    - usage stats`);
+  console.log(`  GET  /api/v1/docs             - Swagger UI`);
+  console.log(`  GET  /api/v1/mcp/tools        - MCP tool definitions`);
+  console.log(`  POST /api/v1/mcp/execute      - execute MCP tool`);
+  console.log(`  GET  /api/v1/tools/custom     - custom tool registry`);
+  console.log(`  GET  /api/v1/workflows        - workflow engine`);
+  console.log(`  GET  /api/v1/logs             - structured logs`);
+  console.log(`  WS   /api/v1/ws              - WebSocket (bidirectional)`);
   console.log(`  Set AGENT_API_AUTH=false to disable auth (dev mode)`);
 }
 

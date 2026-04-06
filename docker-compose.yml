@@ -1,7 +1,9 @@
 version: "3.8"
 services:
   agent:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "3000:3000"
     environment:
@@ -10,9 +12,21 @@ services:
       - LLM_PLANNER_API_KEY=${LLM_PLANNER_API_KEY:-}
       - LLM_PLANNER_MODEL=${LLM_PLANNER_MODEL:-}
       - LLM_PLANNER_BASE_URL=${LLM_PLANNER_BASE_URL:-}
+      - LLM_REPLANNER_PROVIDER=${LLM_REPLANNER_PROVIDER:-}
+      - LLM_REPLANNER_API_KEY=${LLM_REPLANNER_API_KEY:-}
+      - LLM_REPLANNER_MODEL=${LLM_REPLANNER_MODEL:-}
+      - LLM_VERIFIER_PROVIDER=${LLM_VERIFIER_PROVIDER:-}
+      - LLM_VERIFIER_API_KEY=${LLM_VERIFIER_API_KEY:-}
+      - LLM_VERIFIER_MODEL=${LLM_VERIFIER_MODEL:-}
     volumes:
-      - agent-data:/app/data
+      - agent-data:/app/artifacts
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/v1/runs"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
 
 volumes:
   agent-data:

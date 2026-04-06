@@ -34,14 +34,31 @@ export interface ConversationTurn {
   timestamp: string;
 }
 
+// Shared in-memory conversation store
+const conversations = new Map<string, ConversationState>();
+
 export function createConversation(id?: string): ConversationState {
-  return {
+  const conv: ConversationState = {
     id: id ?? `conv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     turns: [],
     causalGraph: createCausalGraph(),
     createdAt: new Date().toISOString(),
     lastActiveAt: new Date().toISOString()
   };
+  conversations.set(conv.id, conv);
+  return conv;
+}
+
+export function getConversation(id: string): ConversationState | undefined {
+  return conversations.get(id);
+}
+
+export function listConversations(): ConversationState[] {
+  return Array.from(conversations.values());
+}
+
+export function deleteConversation(id: string): boolean {
+  return conversations.delete(id);
 }
 
 /**

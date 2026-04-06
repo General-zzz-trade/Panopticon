@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Agent Orchestrator</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#111827">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<script>tailwind={config:{darkMode:'class'}}</script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css">
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+<style>
+html,body{height:100%}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+.mono{font-family:"SF Mono",Monaco,"Courier New",monospace}
+.msg-in{animation:slideIn .2s ease-out}
+@keyframes slideIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner{animation:spin .7s linear infinite;border:2px solid transparent;border-top-color:currentColor;border-radius:50%;width:14px;height:14px;display:inline-block}
+.dot{display:inline-block;width:6px;height:6px;border-radius:50%}
+details>summary{list-style:none;cursor:pointer;user-select:none}
+details>summary::-webkit-details-marker{display:none}
+.typing-dot{animation:typing 1.4s infinite}
+.typing-dot:nth-child(2){animation-delay:.2s}
+.typing-dot:nth-child(3){animation-delay:.4s}
+@keyframes typing{0%,60%,100%{opacity:.3}30%{opacity:1}}
+textarea{resize:none}
+textarea::-webkit-scrollbar,.scroll-thin::-webkit-scrollbar{width:6px;height:6px}
+textarea::-webkit-scrollbar-thumb,.scroll-thin::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:3px}
+.dark textarea::-webkit-scrollbar-thumb,.dark .scroll-thin::-webkit-scrollbar-thumb{background:#374151}
+.prose-msg{line-height:1.6}
+.prose-msg p+p{margin-top:.75em}
+.prose-msg pre{position:relative;background:#0d1117;color:#c9d1d9;padding:12px;border-radius:8px;overflow-x:auto;margin:8px 0;font-size:12px}
+.prose-msg code:not(pre code){background:#f3f4f6;padding:1px 5px;border-radius:4px;font-size:.9em;font-family:"SF Mono",Monaco,monospace}
+.dark .prose-msg code:not(pre code){background:#1f2937}
+.prose-msg a{color:#2563eb;text-decoration:underline}
+.prose-msg h1,.prose-msg h2,.prose-msg h3{font-weight:600;margin:12px 0 6px}
+.prose-msg h1{font-size:1.25em}.prose-msg h2{font-size:1.15em}
+.prose-msg ul,.prose-msg ol{margin:6px 0;padding-left:20px}
+.prose-msg li{margin:2px 0}
+.prose-msg table{border-collapse:collapse;margin:8px 0}
+.prose-msg th,.prose-msg td{border:1px solid #e5e7eb;padding:4px 8px;font-size:12px}
+.dark .prose-msg th,.dark .prose-msg td{border-color:#374151}
+.copy-btn{position:absolute;top:6px;right:6px;padding:2px 8px;font-size:10px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);border-radius:4px;color:#8b949e;cursor:pointer;opacity:0;transition:opacity .15s}
+.prose-msg pre:hover .copy-btn{opacity:1}
+.copy-btn:hover{background:rgba(255,255,255,.2);color:#fff}
+.copy-btn.copied{color:#3fb950}
+.event-row{cursor:pointer;transition:background .1s;border-radius:4px;padding:2px 4px}
+.event-row:hover{background:rgba(0,0,0,.04)}
+.dark .event-row:hover{background:rgba(255,255,255,.06)}
+.inline-event{animation:slideIn .2s ease-out}
+.slash-menu{position:absolute;bottom:calc(100% + 4px);left:0;right:0;max-height:200px;overflow-y:auto}
+.suggest-drop{position:absolute;bottom:calc(100% + 4px);left:0;right:0;max-height:150px;overflow-y:auto}
+.drawer{transform:translateX(100%);transition:transform .22s ease}
+.drawer.open{transform:translateX(0)}
+.resize-handle{width:5px;cursor:col-resize;background:transparent;transition:background .15s;flex-shrink:0}
+.resize-handle:hover,.resize-handle.active{background:rgba(59,130,246,.4)}
+.stage-pill{padding:2px 8px;border-radius:9999px;font-size:11px;transition:all .3s}
+.skeleton{background:linear-gradient(90deg,#f3f4f6 25%,#e5e7eb 50%,#f3f4f6 75%);background-size:200% 100%;animation:shimmer 1.5s infinite}
+.dark .skeleton{background:linear-gradient(90deg,#1f2937 25%,#374151 50%,#1f2937 75%);background-size:200% 100%}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.lightbox{backdrop-filter:blur(8px)}
+.lightbox img{max-width:90vw;max-height:90vh;border-radius:8px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.progress-track{height:3px;transition:width .4s ease}
+.msg-time{font-size:10px;opacity:0;transition:opacity .15s}
+.msg-in:hover .msg-time,.msg-in:hover .msg-actions{opacity:1}
+.msg-actions{opacity:0;transition:opacity .15s}
+.msg-actions button{padding:2px 6px;border-radius:4px;font-size:10px;transition:background .1s}
+.msg-actions button:hover{background:rgba(0,0,0,.06)}
+.dark .msg-actions button:hover{background:rgba(255,255,255,.08)}
+.sidebar{transition:width .2s ease,min-width .2s ease,opacity .2s ease,transform .2s ease;overflow:hidden}
+.sidebar.collapsed{width:0!important;min-width:0!important;padding:0!important;border:none!important;opacity:0;pointer-events:none}
+.right-panel{transition:width .2s ease,min-width .2s ease,opacity .2s ease,transform .2s ease;overflow:hidden}
+.right-panel.collapsed{width:0!important;min-width:0!important;padding:0!important;border:none!important;opacity:0;pointer-events:none}
+.resize-handle.panel-hidden{display:none!important}
+.drag-handle{cursor:grab;opacity:0;transition:opacity .1s}
+.group:hover .drag-handle{opacity:.5}
+.drag-handle:active{cursor:grabbing}
+.drag-over{border-top:2px solid #3b82f6!important}
+@media(max-width:1024px){
+  .sidebar{position:absolute;z-index:40;transform:translateX(-100%)}
+  .sidebar.open{transform:translateX(0);opacity:1;pointer-events:auto;width:16rem!important}
+  .sidebar.collapsed{transform:translateX(-100%)}
+  .right-panel.collapsed{display:none!important}
+  .right-panel.open{display:flex!important;position:absolute;inset:0;z-index:30;width:100%!important;opacity:1;pointer-events:auto}
+}
+@media(max-width:640px){
+  .msg-actions{opacity:1}
+  .msg-time{opacity:1}
+}
+</style>
+</head>
+<body class="bg-white text-gray-900 dark:bg-gray-950 dark:text-gray-100 h-screen overflow-hidden">
+<!-- Notification sound -->
+<audio id="notify-sound" preload="auto" src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdH2LkZeYl5GKgHRlWFJVX2t4hI+XnJ6blpCHfXFkWFBPVGFueISOl5ycmpWPhn1xZFhQT1RhbnmEjpebnJqVj4Z8cWRYUE9UYW55hI6Xm5yamY+GfHFkWFBPVGFueYSOl5ucmpmPhnxxZFhQT1RhbnmEjpebnJqZj4Z8cGRYUE9UYW55hI6Xm5yamY+GfHFkWFBQVGFueYSOl5ucmpmQhn1xZFhQUFRhbnmEjpebnJqZkIZ9cWRYUFBUYG55hI6Xm5yamZCHfXFkV1BQVGBueYSOl5ucmpmQh31yZVhRUVRgbnmEjZebnJqZkId9cWVYUVFUYG55hI2Xm5yamZCHfXJlWVFRVWBteYSNl5ubmpmQh31yZVlRUVVgbXmEjZebm5qZkIh+c2ZaUlJWYW15hI2WmpqZmJCIfnNmWlJSVmFteYSNlpqamZiQiH5zZlpSUlZhbXmEjZaamZmYkIh+c2ZaUlNWYW15hI2WmpmZmJCJf3RnW1NTV2JueoSNlpqZmZiRiX90Z1tTU1dibXqDjZWamJmYkYl/dGdbU1NXYG16g42VmJiYl5GJgHVoXFRUWGJueoONlZiYmJeRioB1aFxUVFhibnqDjZWYmJiXkouBdmldVVVZY296g42VmJiYl5KLgXZpXVVVWWNveoONlZiYmJeSjIF2aV1VVVljb3qDjZWYmJiXkoyBd2peVlZaZHB7g42VmJiYl5KMgXdqXlZWWmRwe4ONlZiXl5eSjIJ3al5WVlpkcHuDjJWYl5eXko2Cd2teV1dbZXF7g4yUl5eWlpKNg3hsX1hYXGZxe4OMlJeXlpaSkYN4bF9YWFxmcXuCi5SWlpWVkpGEeW1gWVldZ3J8gouUlpaVlZKRhHltYFlZXWdyfIKLlJaWlZWTkoV6bmFaWl5oc3yBipOVlZSUk5KFem5hWlpeaHN8gYqTlZWUlJOShXpuYVpaXmhzfIGKk5WVlJSUk4Z7b2JbW19pdH2BipOVlZSUlJOGe29iW1tfaXR9gYqTlJSUlJSThntw"></audio>
+
+<div class="flex h-screen">
+  <!-- Sidebar -->
+  <aside id="sidebar" class="sidebar w-64 bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col flex-shrink-0" role="complementary">
+    <div class="p-3 border-b border-gray-200 dark:border-gray-800">
+      <button id="new-chat" class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-800 rounded-lg transition" aria-label="New chat">
+        <span class="text-lg leading-none">+</span><span data-i18n="new_chat">New chat</span>
+      </button>
+    </div>
+    <div class="px-3 pt-2">
+      <input id="convo-search" type="search" placeholder="Search..." class="w-full px-2.5 py-1.5 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-800 rounded-lg focus:outline-none focus:border-blue-500" aria-label="Search">
+    </div>
+    <div class="flex-1 overflow-y-auto scroll-thin p-2">
+      <div id="convo-list" class="space-y-0.5"></div>
+    </div>
+    <div class="p-3 border-t border-gray-200 dark:border-gray-800 space-y-2">
+      <div id="health-info" class="flex items-center gap-2 text-xs text-gray-500" role="status"><span class="dot bg-gray-300"></span><span>Checking...</span></div>
+      <div id="auth-info" class="text-xs text-gray-500 hidden"></div>
+      <div class="flex items-center gap-1 text-xs flex-wrap">
+        <button id="open-dashboard" class="px-2 py-1 hover:bg-gray-200 dark:hover:bg-gray-800 rounded text-gray-500 hover:text-gray-900 dark:hover:text-gray-100" data-i18n="dashboard">Dashboard</button>
+        <button id="open-settings" class="px-2 py-1 hover:bg-gray-200 dark:hover:bg-gray-800 rounded text-gray-500 hover:text-gray-900 dark:hover:text-gray-100" data-i18n="settings">Settings</button>
+        <a href="/api/v1/docs" target="_blank" class="px-2 py-1 hover:bg-gray-200 dark:hover:bg-gray-800 rounded text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">API</a>
+        <button id="theme-toggle" class="px-2 py-1 hover:bg-gray-200 dark:hover:bg-gray-800 rounded text-gray-500 hover:text-gray-900 dark:hover:text-gray-100" title="Toggle theme">&#9684;</button>
+        <button id="lang-toggle" class="px-2 py-1 hover:bg-gray-200 dark:hover:bg-gray-800 rounded text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 mono text-[10px]" title="Language">EN</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="flex-1 flex flex-col bg-white dark:bg-gray-950 min-w-0" role="main">
+    <header class="border-b border-gray-200 dark:border-gray-800 px-4 md:px-6 flex-shrink-0">
+      <div class="flex items-center justify-between gap-2 py-3">
+        <div class="flex items-center gap-2 min-w-0">
+          <button id="sidebar-toggle" class="px-2 py-1 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 rounded transition" title="Toggle sidebar (Ctrl+B)">
+            <svg id="sidebar-icon" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
+          </button>
+          <h1 id="chat-title" class="font-semibold truncate">New chat</h1>
+        </div>
+        <div class="flex items-center gap-1.5 flex-shrink-0">
+          <button id="cancel-btn" style="display:none" class="items-center gap-1 px-3 py-1 text-xs border border-red-300 text-red-700 dark:text-red-400 dark:border-red-900 hover:bg-red-50 dark:hover:bg-red-950 rounded-lg transition">&#9632; Stop</button>
+          <!-- Task progress counter -->
+          <span id="task-progress" class="hidden text-xs text-gray-500 mono"></span>
+          <select id="mode-select" class="text-xs border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 focus:outline-none">
+            <option value="">Auto</option><option value="sequential">Fast</option><option value="react">Deep</option><option value="cli">Shell</option>
+          </select>
+          <button id="right-toggle" class="px-2 py-1 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 rounded transition" title="Toggle panel (Ctrl+.)">
+            <svg id="right-icon" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/></svg>
+          </button>
+          <button id="export-btn" class="hidden md:inline px-2 py-1 text-xs text-gray-400 hover:text-gray-900 dark:hover:text-gray-100" title="Export">&#8595;</button>
+        </div>
+      </div>
+      <div id="stage-bar" class="hidden pb-2">
+        <div class="flex items-center gap-1 mb-1">
+          <span data-stage="planning" class="stage-pill bg-gray-100 dark:bg-gray-800 text-gray-500">Planning</span>
+          <span class="text-gray-300 dark:text-gray-700 text-xs">&#8594;</span>
+          <span data-stage="executing" class="stage-pill bg-gray-100 dark:bg-gray-800 text-gray-500">Executing</span>
+          <span class="text-gray-300 dark:text-gray-700 text-xs">&#8594;</span>
+          <span data-stage="verifying" class="stage-pill bg-gray-100 dark:bg-gray-800 text-gray-500">Verifying</span>
+          <span class="text-gray-300 dark:text-gray-700 text-xs">&#8594;</span>
+          <span data-stage="done" class="stage-pill bg-gray-100 dark:bg-gray-800 text-gray-500">Done</span>
+          <span id="stage-timer" class="ml-auto text-xs text-gray-400 mono"></span>
+        </div>
+        <div class="w-full bg-gray-200 dark:bg-gray-800 rounded-full h-[3px] overflow-hidden">
+          <div id="progress-bar" class="progress-track bg-blue-500 h-full rounded-full" style="width:0%"></div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Messages (virtual scroll container) -->
+    <div id="chat" class="flex-1 overflow-y-auto scroll-thin px-4 md:px-6 py-8" role="log" aria-live="polite">
+      <div id="empty-chat" class="max-w-2xl mx-auto text-center pt-20">
+        <div class="w-14 h-14 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl mx-auto mb-6 flex items-center justify-center shadow-lg">
+          <svg class="w-7 h-7 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        </div>
+        <h2 class="text-2xl font-semibold mb-2" data-i18n="welcome">How can I help today?</h2>
+        <p class="text-gray-500 dark:text-gray-400 mb-8" data-i18n="welcome_sub">Browse websites, run commands, call APIs, and automate tasks.</p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-xl mx-auto">
+          <button data-prompt="Go to example.com and summarize what the page says" class="suggest-btn text-left px-4 py-3 border border-gray-200 dark:border-gray-800 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-900 transition text-sm group"><div class="font-medium group-hover:text-blue-600" data-i18n="sug_read">Read a webpage</div><div class="text-gray-500 text-xs mt-0.5">Visit a URL and extract information</div></button>
+          <button data-prompt="List all TypeScript files in src/ and count total lines of code" class="suggest-btn text-left px-4 py-3 border border-gray-200 dark:border-gray-800 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-900 transition text-sm group"><div class="font-medium group-hover:text-blue-600" data-i18n="sug_analyze">Analyze a project</div><div class="text-gray-500 text-xs mt-0.5">Count files, explore code</div></button>
+          <button data-prompt="Fetch the GitHub API for the Node.js repository info" class="suggest-btn text-left px-4 py-3 border border-gray-200 dark:border-gray-800 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-900 transition text-sm group"><div class="font-medium group-hover:text-blue-600" data-i18n="sug_api">Call an API</div><div class="text-gray-500 text-xs mt-0.5">HTTP requests and parsing</div></button>
+          <button data-prompt="Go to news.ycombinator.com and find the top 3 stories" class="suggest-btn text-left px-4 py-3 border border-gray-200 dark:border-gray-800 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-900 transition text-sm group"><div class="font-medium group-hover:text-blue-600" data-i18n="sug_browse">Browse the web</div><div class="text-gray-500 text-xs mt-0.5">Navigate, click, fill forms</div></button>
+        </div>
+      </div>
+      <div id="messages" class="max-w-3xl mx-auto space-y-6"></div>
+    </div>
+
+    <!-- Input -->
+    <div class="border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 flex-shrink-0" style="padding-bottom:env(safe-area-inset-bottom)">
+      <div class="max-w-3xl mx-auto px-4 md:px-6 py-4">
+        <form id="input-form" class="relative">
+          <div id="attachments" class="flex flex-wrap gap-2 mb-2 empty:hidden"></div>
+          <div id="slash-menu" class="slash-menu hidden bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg scroll-thin" role="listbox"></div>
+          <div id="suggest-dropdown" class="suggest-drop hidden bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg scroll-thin"></div>
+          <textarea id="user-input" rows="1" placeholder="Message Agent... (/ commands, Ctrl+/ help)" class="w-full px-4 py-3 pr-20 border border-gray-300 dark:border-gray-700 dark:bg-gray-900 rounded-2xl focus:outline-none focus:border-blue-500 dark:focus:border-blue-500 text-sm resize-none max-h-40"></textarea>
+          <div class="absolute right-2 bottom-2 flex items-center gap-1">
+            <button type="button" id="attach-btn" class="w-8 h-8 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition" title="Attach file">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+            </button>
+            <input type="file" id="file-input" class="hidden" multiple>
+            <button id="send-btn" type="submit" class="w-8 h-8 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white rounded-full flex items-center justify-center transition disabled:cursor-not-allowed" disabled>
+              <svg id="send-icon" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+              <span id="send-spinner" class="spinner hidden" style="border-top-color:white"></span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </main>
+
+  <div id="resize-handle" class="resize-handle hidden lg:block"></div>
+
+  <!-- Right panel -->
+  <aside id="right-panel" class="right-panel w-96 bg-gray-50 dark:bg-gray-900 border-l border-gray-200 dark:border-gray-800 flex flex-col flex-shrink-0 hidden lg:flex" role="complementary">
+    <div class="border-b border-gray-200 dark:border-gray-800 flex flex-shrink-0">
+      <button data-tab="live" class="tab-btn flex-1 px-3 py-2 text-xs font-medium border-b-2 border-blue-500 text-gray-900 dark:text-gray-100" role="tab" aria-selected="true">Live</button>
+      <button data-tab="artifacts" class="tab-btn flex-1 px-3 py-2 text-xs font-medium border-b-2 border-transparent text-gray-500" role="tab">Artifacts</button>
+      <button data-tab="trace" class="tab-btn flex-1 px-3 py-2 text-xs font-medium border-b-2 border-transparent text-gray-500" role="tab">Trace</button>
+      <button id="right-close" class="lg:hidden px-3 py-2 text-gray-500">&times;</button>
+    </div>
+    <div class="flex-1 overflow-y-auto scroll-thin">
+      <div id="tab-live" class="tab-content h-full flex flex-col" role="tabpanel">
+        <div class="flex-1 flex items-center justify-center p-4">
+          <div id="live-empty" class="text-center text-xs text-gray-400">
+            <svg class="w-10 h-10 mx-auto mb-2 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+            <div data-i18n="live_label">Live browser view</div>
+            <div class="mt-1" data-i18n="live_hint">Screencast appears when agent opens a browser</div>
+          </div>
+          <img id="live-image" class="hidden max-w-full max-h-full object-contain rounded border border-gray-200 dark:border-gray-800 cursor-pointer" alt="Live" onclick="openLightbox(this.src)">
+        </div>
+        <!-- Browser controls -->
+        <div id="browser-controls" class="hidden border-t border-gray-200 dark:border-gray-800 p-2 flex items-center gap-1 flex-wrap">
+          <button onclick="browserCmd('back')" class="px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-100 dark:hover:bg-gray-800" title="Back">&#8592;</button>
+          <button onclick="browserCmd('forward')" class="px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-100 dark:hover:bg-gray-800" title="Forward">&#8594;</button>
+          <button onclick="browserCmd('refresh')" class="px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-100 dark:hover:bg-gray-800" title="Refresh">&#8635;</button>
+          <input id="browser-url" type="text" class="flex-1 min-w-0 px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-800 rounded focus:outline-none focus:border-blue-500" placeholder="URL...">
+          <button onclick="browserCmd('goto')" class="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">Go</button>
+          <button onclick="browserCmd('screenshot')" class="px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-100 dark:hover:bg-gray-800" title="Screenshot">&#128247;</button>
+        </div>
+      </div>
+      <div id="tab-artifacts" class="tab-content hidden p-3" role="tabpanel"><div id="artifacts-list" class="space-y-2"><p class="text-xs text-gray-400 text-center py-8">No artifacts yet</p></div></div>
+      <div id="tab-trace" class="tab-content hidden p-3" role="tabpanel"><div id="trace-content" class="text-xs space-y-0"><p class="text-xs text-gray-400 text-center py-8">Run trace will appear here</p></div></div>
+    </div>
+  </aside>
+</div>
+
+<!-- Drawer -->
+<div id="drawer-backdrop" class="fixed inset-0 bg-black/20 z-40 hidden" onclick="closeDrawer()"></div>
+<div id="drawer" class="drawer fixed top-0 right-0 bottom-0 w-full max-w-lg bg-white dark:bg-gray-950 border-l border-gray-200 dark:border-gray-800 shadow-2xl z-50 flex flex-col" role="dialog">
+  <div class="border-b border-gray-200 dark:border-gray-800 px-4 py-3 flex items-center justify-between">
+    <h3 id="drawer-title" class="font-semibold text-sm">Details</h3>
+    <button onclick="closeDrawer()" class="text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 text-xl leading-none">&times;</button>
+  </div>
+  <div id="drawer-body" class="flex-1 overflow-y-auto scroll-thin p-4 text-xs"></div>
+</div>
+
+<!-- Settings modal -->
+<div id="settings-modal" class="fixed inset-0 bg-black/40 z-50 hidden items-center justify-center p-4" role="dialog" onclick="if(event.target===this)closeModal('settings-modal')">
+  <div class="bg-white dark:bg-gray-950 rounded-2xl max-w-md w-full p-6 shadow-2xl max-h-[85vh] overflow-y-auto scroll-thin">
+    <div class="flex items-center justify-between mb-4"><h2 class="font-semibold" data-i18n="settings">Settings</h2><button onclick="closeModal('settings-modal')" class="text-gray-500 text-xl leading-none">&times;</button></div>
+    <div class="space-y-4 text-sm">
+      <label class="flex items-center justify-between"><span data-i18n="dark_mode">Dark mode</span><input type="checkbox" id="set-dark" class="accent-blue-500"></label>
+      <label class="flex items-center justify-between"><span data-i18n="notify">Notify on complete</span><input type="checkbox" id="set-notify" class="accent-blue-500"></label>
+      <label class="flex items-center justify-between"><span data-i18n="sound">Sound on complete</span><input type="checkbox" id="set-sound" class="accent-blue-500"></label>
+      <label class="block"><span class="block mb-1" data-i18n="exec_mode">Execution mode</span>
+        <select id="set-mode" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-900 rounded-lg px-2 py-1">
+          <option value="">Auto</option><option value="sequential">Fast</option><option value="react">Deep</option><option value="cli">Shell</option>
+        </select>
+      </label>
+      <label class="block"><span class="block mb-1">Agent name</span><input type="text" id="set-agent-name" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-900 rounded-lg px-2 py-1" placeholder="Agent"></label>
+      <label class="block"><span class="block mb-1">API key</span><input type="password" id="set-apikey" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-900 rounded-lg px-2 py-1" placeholder="X-API-Key"></label>
+      <div class="pt-2 border-t border-gray-200 dark:border-gray-800">
+        <p class="text-xs text-gray-500 mb-2">JWT Authentication</p>
+        <div id="auth-logged-in" class="hidden"><p class="text-xs text-green-600 mb-1">Logged in as <span id="auth-email"></span></p><button id="auth-logout" class="text-xs text-red-600 hover:underline">Logout</button></div>
+        <div id="auth-logged-out">
+          <div class="flex gap-2 mb-2"><input id="auth-email-input" type="email" class="flex-1 border border-gray-300 dark:border-gray-700 dark:bg-gray-900 rounded-lg px-2 py-1 text-xs" placeholder="email"><input id="auth-pass-input" type="password" class="flex-1 border border-gray-300 dark:border-gray-700 dark:bg-gray-900 rounded-lg px-2 py-1 text-xs" placeholder="password"></div>
+          <div class="flex gap-2"><button id="auth-login-btn" class="px-3 py-1 bg-blue-600 text-white rounded-lg text-xs hover:bg-blue-700">Login</button><button id="auth-register-btn" class="px-3 py-1 border border-gray-300 dark:border-gray-700 rounded-lg text-xs hover:bg-gray-100 dark:hover:bg-gray-800">Register</button></div>
+          <p id="auth-error" class="text-xs text-red-500 mt-1 hidden"></p>
+        </div>
+      </div>
+      <button id="settings-save-btn" class="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition" data-i18n="save">Save Settings</button>
+    </div>
+  </div>
+</div>
+
+<!-- Dashboard modal -->
+<div id="dashboard-modal" class="fixed inset-0 bg-black/40 z-50 hidden items-center justify-center p-4" role="dialog" onclick="if(event.target===this)closeModal('dashboard-modal')">
+  <div class="bg-white dark:bg-gray-950 rounded-2xl max-w-2xl w-full p-6 shadow-2xl max-h-[80vh] overflow-y-auto scroll-thin">
+    <div class="flex items-center justify-between mb-4"><h2 class="font-semibold">Dashboard</h2><button onclick="closeModal('dashboard-modal')" class="text-gray-500 text-xl leading-none">&times;</button></div>
+    <div id="dashboard-body" class="text-sm space-y-4">Loading...</div>
+  </div>
+</div>
+
+<!-- Keyboard shortcuts modal -->
+<div id="shortcuts-modal" class="fixed inset-0 bg-black/40 z-50 hidden items-center justify-center p-4" role="dialog" onclick="if(event.target===this)closeModal('shortcuts-modal')">
+  <div class="bg-white dark:bg-gray-950 rounded-2xl max-w-sm w-full p-6 shadow-2xl">
+    <div class="flex items-center justify-between mb-4"><h2 class="font-semibold" data-i18n="shortcuts">Keyboard Shortcuts</h2><button onclick="closeModal('shortcuts-modal')" class="text-gray-500 text-xl leading-none">&times;</button></div>
+    <div class="space-y-2 text-sm">
+      <div class="flex justify-between"><span>Focus input</span><kbd class="mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">Ctrl+K</kbd></div>
+      <div class="flex justify-between"><span>Toggle sidebar</span><kbd class="mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">Ctrl+B</kbd></div>
+      <div class="flex justify-between"><span>Toggle panel</span><kbd class="mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">Ctrl+.</kbd></div>
+      <div class="flex justify-between"><span data-i18n="settings">Settings</span><kbd class="mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">Ctrl+,</kbd></div>
+      <div class="flex justify-between"><span data-i18n="shortcuts">Shortcuts</span><kbd class="mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">Ctrl+/</kbd></div>
+      <div class="flex justify-between"><span>New chat</span><kbd class="mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">Ctrl+N</kbd></div>
+      <div class="flex justify-between"><span>Send message</span><kbd class="mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">Enter</kbd></div>
+      <div class="flex justify-between"><span>New line</span><kbd class="mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">Shift+Enter</kbd></div>
+      <div class="flex justify-between"><span>History up/down</span><kbd class="mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">&#8593;/&#8595;</kbd></div>
+      <div class="flex justify-between"><span>Close modal</span><kbd class="mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">Esc</kbd></div>
+    </div>
+  </div>
+</div>
+
+<!-- Lightbox -->
+<div id="lightbox" class="lightbox fixed inset-0 bg-black/70 z-[60] hidden items-center justify-center cursor-pointer" onclick="closeLightbox()" role="dialog">
+  <img id="lightbox-img" class="pointer-events-none" alt="Preview">
+  <button class="absolute top-4 right-4 text-white text-3xl leading-none hover:opacity-70">&times;</button>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="fixed bottom-4 right-4 z-50 hidden bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-sm rounded-lg px-4 py-2 shadow-lg" role="status"></div>
+
+<script src="/app.js?v=11"></script>
+<script src="/onboarding.js"></script>
+<script>if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});</script>
+</body>
+</html>

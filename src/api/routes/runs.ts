@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { getRun, getRunCognition, listRuns } from "../../db/runs-repo";
 import { getRunStatus } from "../run-store";
 import { submitJob, getQueue } from "../../worker/pool";
+import { requestCancel, isCancelled } from "../run-control";
 import { sanitizeGoal } from "../sanitize";
 import { detectAmbiguity } from "../../clarification/detector";
 import { storeClarification, answerClarification, deleteClarification } from "../../clarification/store";
@@ -53,6 +54,19 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
 
     const runId = `run-${new Date().toISOString().replace(/[:.]/g, "-")}-${Math.random().toString(36).slice(2, 8)}`;
     const decomposition = decomposeGoal(goal);
+
+    // Conversation continuity: inject browser session + world state from prior turns
+    const convoId = (options as Record<string, unknown>).conversationId as string | undefined;
+    if (convoId) {
+      const { getConversation } = await import("../../session/conversation");
+      const conv = getConversation(convoId);
+      if (conv) {
+        (options as Record<string, unknown>).browserSession = conv.browserSession;
+        (options as Record<string, unknown>).worldState = conv.worldState;
+        (options as Record<string, unknown>).keepBrowserAlive = true;
+      }
+    }
+
     submitJob(runId, goal, options, tenantId);
     recordFrequentGoal(tenantId, goal);
     auditLog({ tenantId, action: "run_submitted", resource: runId, detail: maskSensitive(goal) });
@@ -145,6 +159,14 @@ export async function runsRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(202).send({ runId: id, status: "accepted", enrichedGoal });
     }
   );
+
+  // POST /runs/:id/cancel — request cancellation of a run
+  app.post<{ Params: { id: string } }>("/runs/:id/cancel", async (request, reply) => {
+    const { id } = request.params;
+    requestCancel(id);
+    auditLog({ tenantId: request.tenantId ?? "default", action: "run_cancel_requested", resource: id });
+    return reply.code(202).send({ runId: id, status: "cancel_requested", cancelled: isCancelled(id) });
+  });
 
   // GET /queue/stats — worker pool status
   app.get("/queue/stats", async (_request, reply) => {

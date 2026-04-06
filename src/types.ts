@@ -81,6 +81,7 @@ export type TerminationReason =
   | "replan_budget_exceeded"
   | "task_replan_budget_exceeded"
   | "timeout"
+  | "cancelled"
   | "unknown";
 
 export interface RunArtifact {

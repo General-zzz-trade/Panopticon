@@ -69,6 +69,23 @@ export async function analyzeRecoveryOptions(
     }
   });
 
+  if (hypotheses.length > 0) {
+    const top = hypotheses[0];
+    publishEvent({
+      type: "hypothesis",
+      runId: context.runId,
+      taskId: task.id,
+      timestamp: new Date().toISOString(),
+      summary: `${top.kind} (${(top.confidence * 100).toFixed(0)}%)`,
+      message: top.recoveryHint,
+      payload: {
+        count: hypotheses.length,
+        top: { kind: top.kind, confidence: top.confidence, hint: top.recoveryHint },
+        all: hypotheses.slice(0, 3).map(h => ({ kind: h.kind, confidence: h.confidence }))
+      }
+    });
+  }
+
   const experimentResults = await runRecoveryExperiments({ context, task, hypotheses });
   context.experimentResults ??= [];
   context.experimentResults.push(...experimentResults);

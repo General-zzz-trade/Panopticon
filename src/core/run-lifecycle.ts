@@ -63,7 +63,7 @@ export async function initializeRun(goal: string, options: RunOptions): Promise<
     maxReplansPerRun: options.maxReplansPerRun ?? 3,
     maxReplansPerTask: options.maxReplansPerTask ?? 1
   };
-  const runId = createRunId();
+  const runId = options.runId ?? createRunId();
   const policy = resolvePolicy(options.policy);
   const tieBreakerPolicy: PlannerTieBreakerPolicy = {
     preferStablePlannerOnTie: options.tieBreakerPolicy?.preferStablePlannerOnTie ?? true,
@@ -104,6 +104,14 @@ export async function initializeRun(goal: string, options: RunOptions): Promise<
   }, "building strategic context");
   const enrichedContext = [episodeContext, strategicContextStr].filter(Boolean).join("\n\n");
 
+  publishEvent({
+    type: "planning",
+    runId,
+    timestamp: new Date().toISOString(),
+    summary: "Planning tasks",
+    message: goal
+  });
+
   const planResult = await planTasks(goal, {
     runId,
     mode: options.plannerMode ?? "auto",
@@ -112,6 +120,18 @@ export async function initializeRun(goal: string, options: RunOptions): Promise<
     policy,
     usageLedger,
     episodeContext: enrichedContext
+  });
+
+  publishEvent({
+    type: "planning",
+    runId,
+    timestamp: new Date().toISOString(),
+    summary: `Planned ${planResult.tasks.length} task${planResult.tasks.length !== 1 ? "s" : ""} via ${planResult.plannerUsed}`,
+    payload: {
+      planner: planResult.plannerUsed,
+      taskCount: planResult.tasks.length,
+      tasks: planResult.tasks.map(t => ({ id: t.id, type: t.type }))
+    }
   });
 
   const initialWorldState = options.worldState
@@ -206,6 +226,9 @@ export async function finalizeRun(
 
   const { clearApprovals } = await import("../approval/gate");
   clearApprovals(context.runId);
+
+  const { clearCancel } = await import("../api/run-control");
+  clearCancel(context.runId);
 
   await context.screencastSession?.stop();
   context.screencastSession = undefined;
@@ -381,6 +404,7 @@ export function getErrorMessage(error: unknown): string {
 }
 
 export function determineTerminationReason(message: string): TerminationReason {
+  if (/cancelled by user/i.test(message)) return "cancelled";
   if (message.includes("Replan budget exceeded for run")) return "replan_budget_exceeded";
   if (message.includes("Replan budget exceeded for task")) return "task_replan_budget_exceeded";
   if (/timeout|timed out|did not become available/i.test(message)) return "timeout";

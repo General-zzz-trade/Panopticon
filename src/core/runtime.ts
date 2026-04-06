@@ -35,6 +35,8 @@ export interface RunOptions {
   tieBreakerPolicy?: Partial<PlannerTieBreakerPolicy>;
   policy?: Partial<AgentPolicy>;
   tenantId?: string;
+  /** Override the generated runId (for API worker queue coordination) */
+  runId?: string;
   /** Inject an existing browser session (for multi-turn conversations) */
   browserSession?: RunContext["browserSession"];
   /** Inject prior world state (for multi-turn conversations) */
@@ -46,6 +48,20 @@ export interface RunOptions {
 }
 
 export async function runGoal(goal: string, options: RunOptions = {}): Promise<RunContext> {
+  // Hybrid reasoning: if no mode specified, classify goal complexity and route
+  if (!options.executionMode) {
+    try {
+      const { classifyComplexity } = await import("../cognition/complexity-classifier");
+      const assessment = classifyComplexity(goal);
+      // Only auto-route to non-sequential if complexity score is high
+      if (assessment.suggestedExecutionMode !== "sequential" && assessment.mode === "slow") {
+        options = { ...options, executionMode: assessment.suggestedExecutionMode };
+      }
+    } catch {
+      // Classification is optional — fall through to default sequential
+    }
+  }
+
   // Dispatch to alternative execution modes
   if (options.executionMode === "cli") {
     const { isCLIAgentConfigured, runCLIGoal } = await import("../computer-use/cli-agent");
@@ -185,13 +201,21 @@ export async function runGoal(goal: string, options: RunOptions = {}): Promise<R
     // Build execution graph from task list
     const graph = createGraphFromTasks(context.tasks);
 
+    const { isCancelled } = await import("../api/run-control");
+
     // DAG-aware execution: process ready nodes until graph is complete
     while (!isGraphComplete(graph)) {
+      if (isCancelled(context.runId)) {
+        throw new Error("Run cancelled by user");
+      }
       const readyNodes = getReadyNodes(graph);
       if (readyNodes.length === 0) break; // No progress possible
 
       // Execute ready nodes (sequentially for now; parallel support via orchestrator)
       for (const node of readyNodes) {
+        if (isCancelled(context.runId)) {
+          throw new Error("Run cancelled by user");
+        }
         if (node.type !== "task") {
           // Fork/join/decision nodes auto-complete
           completeNode(graph, node.id, true, `${node.type} node passed`);

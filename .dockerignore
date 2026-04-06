@@ -1,6 +1,17 @@
 node_modules
 dist
 artifacts
+.git
+.github
 .claude
 .codex
+.vscode
+.idea
 *.md
+*.log
+.env*
+coverage
+benchmarks
+src/**/*.test.ts
+src/e2e.integration.test.ts
+src/sample-app

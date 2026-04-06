@@ -18,7 +18,7 @@ export interface LLMProviderConfig {
 }
 
 export interface LLMMessage {
-  role: "system" | "user";
+  role: "system" | "user" | "assistant";
   content: string;
 }
 
