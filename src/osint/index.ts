@@ -152,6 +152,19 @@ export { investigationToStix, investigationToMisp } from "./stix-export.js";
 export type { StixBundle, MispEvent } from "./stix-export.js";
 
 export { autoInvestigate } from "./auto-investigate.js";
+
+// Deep scanning (no API keys)
+export { isNmapAvailable, nmapQuickScan, nmapDeepScan, nmapVulnScan, nmapScriptScan } from "./nmap-scanner.js";
+export type { NmapResult, NmapPort, OsGuess } from "./nmap-scanner.js";
+
+export { checkUrlSafety, checkIpReputation } from "./safebrowsing.js";
+export type { UrlSafetyResult } from "./safebrowsing.js";
+
+export { harvestEmails } from "./email-harvester.js";
+export type { HarvestResult, HarvestedEmail } from "./email-harvester.js";
+
+export { getPassiveDnsHistory } from "./passive-dns.js";
+export type { PassiveDnsResult, DnsHistoryEntry } from "./passive-dns.js";
 export type { AutoInvestigationResult, MultiDimensionScore } from "./auto-investigate.js";
 export type { HistoricalProfile, PersonProfile, NextStep } from "./deep-profile.js";
 export type { AcademicResult, PatentResult } from "./public-records.js";

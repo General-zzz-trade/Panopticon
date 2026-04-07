@@ -1000,4 +1000,61 @@ export default async function osintRoutes(app: FastifyInstance) {
     const { investigationToMisp } = await import("../../osint/stix-export.js");
     return { success: true, data: investigationToMisp(body.target, body.findings) };
   });
+
+  // ══════════════════════════════════════════════════════
+  //  DEEP SCANNING (NO API KEYS)
+  // ══════════════════════════════════════════════════════
+
+  // ── Nmap Deep Scan ────────────────────────────────────
+  app.post("/osint/nmap/quick", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { target } = request.body as { target: string };
+    if (!target) return reply.code(400).send({ error: "target is required" });
+    const { nmapQuickScan } = await import("../../osint/nmap-scanner.js");
+    return { success: true, data: await nmapQuickScan(target) };
+  });
+
+  app.post("/osint/nmap/deep", async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { target: string; ports?: string; osDetect?: boolean; udp?: boolean };
+    if (!body.target) return reply.code(400).send({ error: "target is required" });
+    const { nmapDeepScan } = await import("../../osint/nmap-scanner.js");
+    return { success: true, data: await nmapDeepScan(body.target, { ports: body.ports, osDetect: body.osDetect, udp: body.udp }) };
+  });
+
+  app.post("/osint/nmap/vuln", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { target } = request.body as { target: string };
+    if (!target) return reply.code(400).send({ error: "target is required" });
+    const { nmapVulnScan } = await import("../../osint/nmap-scanner.js");
+    return { success: true, data: await nmapVulnScan(target) };
+  });
+
+  // ── URL/IP Safety Check ───────────────────────────────
+  app.post("/osint/safety/url", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { url } = request.body as { url: string };
+    if (!url) return reply.code(400).send({ error: "url is required" });
+    const { checkUrlSafety } = await import("../../osint/safebrowsing.js");
+    return { success: true, data: await checkUrlSafety(url) };
+  });
+
+  app.post("/osint/safety/ip", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { ip } = request.body as { ip: string };
+    if (!ip) return reply.code(400).send({ error: "ip is required" });
+    const { checkIpReputation } = await import("../../osint/safebrowsing.js");
+    return { success: true, data: await checkIpReputation(ip) };
+  });
+
+  // ── Email Harvesting ──────────────────────────────────
+  app.post("/osint/harvest-emails", async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { domain: string; verify?: boolean };
+    if (!body.domain) return reply.code(400).send({ error: "domain is required" });
+    const { harvestEmails } = await import("../../osint/email-harvester.js");
+    return { success: true, data: await harvestEmails(body.domain, { verify: body.verify }) };
+  });
+
+  // ── Passive DNS History ───────────────────────────────
+  app.post("/osint/passive-dns", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { domain } = request.body as { domain: string };
+    if (!domain) return reply.code(400).send({ error: "domain is required" });
+    const { getPassiveDnsHistory } = await import("../../osint/passive-dns.js");
+    return { success: true, data: await getPassiveDnsHistory(domain) };
+  });
 }
