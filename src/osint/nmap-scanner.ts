@@ -138,7 +138,7 @@ export async function nmapQuickScan(target: string): Promise<NmapResult> {
   const clean = target.replace(/[^a-zA-Z0-9.\-:]/g, "");
 
   const { stdout, stderr } = await execFileNoThrow(
-    "nmap", ["-sV", "--top-ports", "1000", "-oX", "-", "--open", "-T4", clean],
+    "nmap", ["-sV", "--version-intensity", "5", "--top-ports", "1000", "-oX", "-", "--open", "-T4", clean],
     { timeoutMs: 120000 }
   );
 

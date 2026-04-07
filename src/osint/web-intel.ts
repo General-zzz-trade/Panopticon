@@ -124,7 +124,7 @@ export async function waybackDiff(url: string): Promise<{
 
 const TECH_SIGNATURES: Record<string, { pattern: RegExp; category: string }> = {
   // JavaScript Frameworks
-  "React": { pattern: /react(?:\.production|dom|\.min)?\.js|__NEXT_DATA__|_next\/static/i, category: "javascript" },
+  "React": { pattern: /react(?:\.production|dom|\.min)?\.js|__NEXT_DATA__|_next\/static|data-reactroot|data-reactid|react-app|__react/i, category: "javascript" },
   "Vue.js": { pattern: /vue(?:\.min|\.runtime)?\.js|__VUE_|v-app/i, category: "javascript" },
   "Angular": { pattern: /angular(?:\.min)?\.js|ng-app|ng-controller|angular\.module/i, category: "javascript" },
   "Svelte": { pattern: /svelte(?:\.min)?\.js|__svelte/i, category: "javascript" },
@@ -228,6 +228,31 @@ export async function detectTechStack(url: string): Promise<TechStackResult> {
     const generatorMatch = html.match(/<meta[^>]*name=["']generator["'][^>]*content=["']([^"']+)/i);
     if (generatorMatch) {
       result.cms = result.cms || generatorMatch[1];
+    }
+
+    // Additional SSR/framework detection from HTML structure
+    if (html.includes("data-turbo") || html.includes("turbo-frame")) {
+      if (!result.javascript.includes("Turbo/Hotwire")) result.javascript.push("Turbo/Hotwire");
+    }
+    if (html.includes("data-controller") || html.includes("stimulus")) {
+      if (!result.javascript.includes("Stimulus")) result.javascript.push("Stimulus");
+    }
+    if (html.includes("rails-ujs") || html.includes("csrf-token")) {
+      result.framework = result.framework || "Ruby on Rails";
+    }
+    if (html.includes("__NUXT__") || html.includes("_nuxt/")) {
+      if (!result.javascript.includes("Nuxt")) result.javascript.push("Nuxt");
+    }
+    if (html.includes("__sveltekit") || html.includes("svelte")) {
+      if (!result.javascript.includes("SvelteKit")) result.javascript.push("SvelteKit");
+    }
+
+    // X-Powered-By from headers
+    const poweredBy = result.headers["x-powered-by"];
+    if (poweredBy) {
+      if (poweredBy.includes("Express")) result.framework = result.framework || "Express.js";
+      if (poweredBy.includes("PHP")) result.framework = result.framework || `PHP (${poweredBy})`;
+      if (poweredBy.includes("ASP")) result.framework = result.framework || "ASP.NET";
     }
   } catch {}
 

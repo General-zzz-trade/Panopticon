@@ -388,9 +388,20 @@ export async function attemptZoneTransfer(domain: string): Promise<{ success: bo
   const nameservers = nsOutput.split("\n").map(ns => ns.trim().replace(/\.$/, "")).filter(Boolean);
 
   for (const ns of nameservers) {
-    const { stdout: axfr } = await execFileNoThrow("dig", [`@${ns}`, clean, "AXFR", "+short"], { timeoutMs: 15000 });
-    if (axfr && !axfr.includes("Transfer failed") && !axfr.includes("REFUSED") && axfr.trim()) {
-      records.push(...axfr.split("\n").filter(Boolean));
+    const { stdout: axfr, status } = await execFileNoThrow("dig", [`@${ns}`, clean, "AXFR", "+short"], { timeoutMs: 15000 });
+    if (!axfr || !axfr.trim()) continue;
+
+    // Filter out error/failure lines
+    const lines = axfr.split("\n").filter(line => {
+      const l = line.trim();
+      return l && !l.startsWith(";") && !l.includes("Transfer failed") &&
+        !l.includes("REFUSED") && !l.includes("communications error") &&
+        !l.includes("connection reset") && !l.includes("timed out") &&
+        !l.includes("no servers could be reached");
+    });
+
+    if (lines.length > 0) {
+      records.push(...lines);
       return { success: true, records };
     }
   }

@@ -145,6 +145,34 @@ async function collectSmtpEvidence(domain: string): Promise<RawEvidence[]> {
   return evidence;
 }
 
+async function collectCompanyEvidence(domain: string): Promise<RawEvidence[]> {
+  const evidence: RawEvidence[] = [];
+  try {
+    // Wikipedia/DuckDuckGo for company name
+    const { searchWikipedia, searchDdgCompany } = await import("./company-intel.js");
+    const baseName = domain.split(".")[0];
+
+    const [wiki, ddg] = await Promise.all([
+      searchWikipedia(baseName),
+      searchDdgCompany(baseName),
+    ]);
+
+    // DuckDuckGo instant answer (high confidence if exists)
+    if (ddg && ddg.name) {
+      evidence.push({ source: "duckduckgo", type: "organization", value: ddg.name, confidence: 0.75 });
+      if (ddg.industry) {
+        evidence.push({ source: "duckduckgo", type: "indicator", value: `Industry: ${ddg.industry.slice(0, 100)}`, confidence: 0.6 });
+      }
+    }
+
+    // Wikipedia results
+    for (const w of wiki.slice(0, 2)) {
+      evidence.push({ source: "wikipedia", type: "organization", value: w.name, confidence: 0.7 });
+    }
+  } catch {}
+  return evidence;
+}
+
 // ── Attribution Logic ───────────────────────────────────
 
 function buildAttributions(evidence: RawEvidence[]): Attribution[] {
@@ -193,14 +221,15 @@ export async function attributeTarget(domain: string): Promise<AttributionResult
   const clean = domain.replace(/[^a-zA-Z0-9.\-]/g, "");
 
   // Collect evidence from all sources in parallel
-  const [whoisEv, certEv, dnsEv, smtpEv] = await Promise.all([
+  const [whoisEv, certEv, dnsEv, smtpEv, companyEv] = await Promise.all([
     collectWhoisEvidence(clean),
     collectCertEvidence(clean),
     collectDnsEvidence(clean),
     collectSmtpEvidence(clean),
+    collectCompanyEvidence(clean),
   ]);
 
-  const allEvidence = [...whoisEv, ...certEv, ...dnsEv, ...smtpEv];
+  const allEvidence = [...whoisEv, ...certEv, ...dnsEv, ...smtpEv, ...companyEv];
   const attributions = buildAttributions(allEvidence);
   const evidenceChain = buildEvidenceChain(allEvidence);
 
