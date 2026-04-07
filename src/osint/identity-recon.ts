@@ -38,8 +38,9 @@ export interface SocialProfile {
 interface PlatformCheck {
   name: string;
   urlTemplate: string;
-  existsIndicator: "status200" | "status200_noRedirect" | "bodyContains";
+  existsIndicator: "status200" | "status200_noRedirect" | "bodyContains" | "status200_bodyAbsent";
   bodyMatch?: string;
+  notFoundSignature?: string;  // If 200 but body contains this → NOT found (false positive filter)
   category: string;
 }
 
@@ -54,11 +55,11 @@ const PLATFORMS: PlatformCheck[] = [
   { name: "Keybase", urlTemplate: "https://keybase.io/{}", existsIndicator: "status200", category: "security" },
   { name: "Twitter/X", urlTemplate: "https://x.com/{}", existsIndicator: "status200_noRedirect", category: "social" },
   { name: "Instagram", urlTemplate: "https://www.instagram.com/{}/", existsIndicator: "status200", category: "social" },
-  { name: "Pinterest", urlTemplate: "https://www.pinterest.com/{}/", existsIndicator: "status200", category: "social" },
-  { name: "Tumblr", urlTemplate: "https://{}.tumblr.com/", existsIndicator: "status200", category: "blog" },
-  { name: "Flickr", urlTemplate: "https://www.flickr.com/people/{}/", existsIndicator: "status200", category: "photo" },
-  { name: "Vimeo", urlTemplate: "https://vimeo.com/{}", existsIndicator: "status200", category: "video" },
-  { name: "SoundCloud", urlTemplate: "https://soundcloud.com/{}", existsIndicator: "status200", category: "audio" },
+  { name: "Pinterest", urlTemplate: "https://www.pinterest.com/{}/", existsIndicator: "status200", notFoundSignature: "Did you mean", category: "social" },
+  { name: "Tumblr", urlTemplate: "https://{}.tumblr.com/", existsIndicator: "status200", notFoundSignature: "not found", category: "blog" },
+  { name: "Flickr", urlTemplate: "https://www.flickr.com/people/{}/", existsIndicator: "status200", notFoundSignature: "not found", category: "photo" },
+  { name: "Vimeo", urlTemplate: "https://vimeo.com/{}", existsIndicator: "status200", notFoundSignature: "Sorry, we couldn", category: "video" },
+  { name: "SoundCloud", urlTemplate: "https://soundcloud.com/{}", existsIndicator: "status200", notFoundSignature: "We can't find that", category: "audio" },
   { name: "Spotify", urlTemplate: "https://open.spotify.com/user/{}", existsIndicator: "status200", category: "audio" },
   { name: "Steam", urlTemplate: "https://steamcommunity.com/id/{}", existsIndicator: "status200", category: "gaming" },
   { name: "Twitch", urlTemplate: "https://www.twitch.tv/{}", existsIndicator: "status200", category: "gaming" },
@@ -66,7 +67,7 @@ const PLATFORMS: PlatformCheck[] = [
   { name: "Behance", urlTemplate: "https://www.behance.net/{}", existsIndicator: "status200", category: "design" },
   { name: "Dribbble", urlTemplate: "https://dribbble.com/{}", existsIndicator: "status200", category: "design" },
   { name: "npm", urlTemplate: "https://www.npmjs.com/~{}", existsIndicator: "status200", category: "dev" },
-  { name: "PyPI", urlTemplate: "https://pypi.org/user/{}/", existsIndicator: "status200", category: "dev" },
+  { name: "PyPI", urlTemplate: "https://pypi.org/user/{}/", existsIndicator: "status200", notFoundSignature: "not found", category: "dev" },
   { name: "Docker Hub", urlTemplate: "https://hub.docker.com/u/{}", existsIndicator: "status200", category: "dev" },
   { name: "StackOverflow", urlTemplate: "https://stackoverflow.com/users/?tab=accounts&SearchText={}", existsIndicator: "bodyContains", bodyMatch: "reputation", category: "dev" },
   { name: "LinkedIn", urlTemplate: "https://www.linkedin.com/in/{}/", existsIndicator: "status200", category: "professional" },
@@ -126,6 +127,11 @@ async function checkPlatform(platform: PlatformCheck, username: string): Promise
 
     if (platform.existsIndicator === "status200" || platform.existsIndicator === "status200_noRedirect") {
       exists = response.status === 200;
+      // Filter false positives: if page returns 200 but contains "not found" signature
+      if (exists && platform.notFoundSignature) {
+        const body = await response.text();
+        if (body.includes(platform.notFoundSignature)) exists = false;
+      }
     } else if (platform.existsIndicator === "bodyContains" && platform.bodyMatch) {
       const body = await response.text();
       exists = body.includes(platform.bodyMatch);

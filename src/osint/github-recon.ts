@@ -56,20 +56,40 @@ const SECRET_PATTERNS: { name: string; regex: RegExp }[] = [
   { name: "SSH Key", regex: /ssh-(?:rsa|dss|ed25519)\s+AAAA[A-Za-z0-9+/]+/ },
 ];
 
-// ── GitHub Search (public, no auth) ─────────────────────
+// ── GitHub Headers (optional token support) ─────────────
+
+function githubHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Accept": "application/vnd.github.v3+json",
+    "User-Agent": "Panopticon-OSINT",
+  };
+  // Support optional GITHUB_TOKEN for higher rate limits (5000/hr vs 10/min)
+  const token = process.env.GITHUB_TOKEN;
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  return headers;
+}
+
+export let githubRateLimited = false;
+
+// ── GitHub Search ───────────────────────────────────────
 
 export async function searchGithubRepos(query: string): Promise<GithubRepo[]> {
   const repos: GithubRepo[] = [];
+  if (githubRateLimited) return repos;
 
   try {
-    // GitHub public search API (no auth, rate limited to 10 req/min)
     const response = await fetch(
       `https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&sort=updated&per_page=20`,
-      {
-        signal: AbortSignal.timeout(15000),
-        headers: { "Accept": "application/vnd.github.v3+json", "User-Agent": "OSINT-Agent" },
-      }
+      { signal: AbortSignal.timeout(15000), headers: githubHeaders() }
     );
+
+    // Detect rate limiting
+    if (response.status === 403 || response.status === 429) {
+      githubRateLimited = true;
+      // Auto-reset after 60s
+      setTimeout(() => { githubRateLimited = false; }, 60000);
+      return repos;
+    }
 
     if (response.ok) {
       const data = await response.json();

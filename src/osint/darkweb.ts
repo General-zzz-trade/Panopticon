@@ -60,16 +60,40 @@ export async function searchDarkWebIndexes(query: string): Promise<DarkWebResult
     }
   } catch {}
 
-  // Source 2: IntelX (Intelligence X — public search, limited free)
+  // Source 2: onion.live (dark web directory — clearnet accessible)
   try {
     const response = await fetch(
-      `https://2600.shodan.io/search?query=${encodeURIComponent(clean)}`,
-      { signal: AbortSignal.timeout(10000) }
+      `https://onion.live/search?q=${encodeURIComponent(clean)}`,
+      { signal: AbortSignal.timeout(10000), headers: { "User-Agent": "Mozilla/5.0" } }
     );
-    // Note: Shodan 2600 may not always be available
+    if (response.ok) {
+      const html = await response.text();
+      const onionMatches = html.matchAll(/([a-z2-7]{56}\.onion)/gi);
+      for (const m of onionMatches) {
+        if (!onionUrls.includes(m[1])) {
+          onionUrls.push(m[1]);
+          mentions.push({ source: "onion.live", title: m[1], url: `http://${m[1]}`, snippet: `Onion service found via directory`, type: "service" });
+        }
+      }
+    }
   } catch {}
 
-  // Source 3: Check for known .onion patterns in DNS TXT records
+  // Source 3: Search Google for cached .onion references
+  try {
+    const response = await fetch(
+      `https://html.duckduckgo.com/html/?q=${encodeURIComponent(clean + " site:onion.ws OR .onion")}`,
+      { signal: AbortSignal.timeout(10000), headers: { "User-Agent": "Mozilla/5.0" } }
+    );
+    if (response.ok) {
+      const html = await response.text();
+      const onionMatches = html.matchAll(/([a-z2-7]{56}\.onion)/gi);
+      for (const m of onionMatches) {
+        if (!onionUrls.includes(m[1])) onionUrls.push(m[1]);
+      }
+    }
+  } catch {}
+
+  // Source 4: Check for known .onion patterns in DNS TXT records
   try {
     const { execFileNoThrow } = await import("../utils/execFileNoThrow.js");
     const { stdout } = await execFileNoThrow("dig", ["+short", clean, "TXT"], { timeoutMs: 5000 });

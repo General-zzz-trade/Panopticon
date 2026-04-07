@@ -574,4 +574,40 @@ export default async function osintRoutes(app: FastifyInstance) {
     const { monitorNews } = await import("../../osint/news-monitor.js");
     return { success: true, data: await monitorNews(query, { includeGeneral: true }) };
   });
+
+  // ── Directory Bruteforce ──────────────────────────────
+  app.post("/osint/dirscan", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { target } = request.body as { target: string };
+    if (!target) return reply.code(400).send({ error: "target URL is required" });
+    const { dirBruteforce } = await import("../../osint/dir-bruteforce.js");
+    return { success: true, data: await dirBruteforce(target) };
+  });
+
+  // ── CORS Check ────────────────────────────────────────
+  app.post("/osint/cors", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { target } = request.body as { target: string };
+    if (!target) return reply.code(400).send({ error: "target URL is required" });
+    const { checkCors } = await import("../../osint/dir-bruteforce.js");
+    return { success: true, data: await checkCors(target) };
+  });
+
+  // ── HTTP Parameter Discovery ──────────────────────────
+  app.post("/osint/params", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { target } = request.body as { target: string };
+    if (!target) return reply.code(400).send({ error: "target URL is required" });
+    const { discoverParams } = await import("../../osint/dir-bruteforce.js");
+    return { success: true, data: await discoverParams(target) };
+  });
+
+  // ── Cache Management ──────────────────────────────────
+  app.get("/osint/cache/stats", async () => {
+    const { cacheStats } = await import("../../osint/utils.js");
+    return { success: true, data: cacheStats() };
+  });
+
+  app.delete("/osint/cache", async () => {
+    const { cacheClear } = await import("../../osint/utils.js");
+    cacheClear();
+    return { success: true, message: "Cache cleared" };
+  });
 }

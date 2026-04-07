@@ -86,6 +86,11 @@ export type { ApiDiscoveryResult, DiscoveredEndpoint } from "./api-discovery.js"
 export { monitorNews } from "./news-monitor.js";
 export type { NewsMonitorResult, NewsArticle } from "./news-monitor.js";
 
+export { dirBruteforce, checkCors, discoverParams } from "./dir-bruteforce.js";
+export type { DirBruteResult, CorsCheckResult, ParamDiscoveryResult } from "./dir-bruteforce.js";
+
+export { cacheGet, cacheSet, cacheClear, cacheStats, fetchRetry, safeExec, parsePortRange } from "./utils.js";
+
 export { searchDarkWebIndexes } from "./darkweb.js";
 export type { DarkWebResult } from "./darkweb.js";
 
