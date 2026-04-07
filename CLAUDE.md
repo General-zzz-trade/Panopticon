@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-Panopticon is an AI-powered open-source intelligence (OSINT) platform with 56 reconnaissance modules, 115 API endpoints, and a dark-themed React UI. It conducts automated domain intelligence, network scanning, identity enumeration, web technology detection, threat assessment, and metadata extraction — all without external API keys. It uses system commands (`whois`, `dig`, `openssl`), TCP connect scanning, and free public data sources (crt.sh, ip-api.com, archive.org, abuse.ch, HaveIBeenPwned, NVD).
+Panopticon is an AI-powered open-source intelligence (OSINT) platform with 63 reconnaissance modules, 131 API endpoints, and a dark-themed React UI. It conducts automated domain intelligence, network scanning, identity enumeration, web technology detection, threat assessment, and metadata extraction — all without external API keys. It uses system commands (`whois`, `dig`, `openssl`), TCP connect scanning, and free public data sources (crt.sh, ip-api.com, archive.org, abuse.ch, HaveIBeenPwned, NVD).
 
 ## Commands
 
@@ -37,7 +37,7 @@ node --import tsx --test src/path/to/file.test.ts
 
 ## Architecture
 
-### OSINT Modules (`src/osint/` — 56 files)
+### OSINT Modules (`src/osint/` — 63 files)
 
 The core OSINT engine is modular — each file is a self-contained reconnaissance capability:
 
@@ -123,7 +123,7 @@ Plan → Execute → Verify → Decide → (Hypothesize → Recover)
 
 ### API (`src/api/`)
 
-Fastify server with 115 endpoints at `/api/v1/osint/*`. Also serves the React frontend as SPA with fallback routing.
+Fastify server with 131 endpoints at `/api/v1/osint/*`. Also serves the React frontend as SPA with fallback routing.
 
 ### Frontend (`webapp/`)
 
@@ -138,14 +138,14 @@ React 19 + Vite 6 + Tailwind CSS. Dark OSINT theme (`#0a0e17` bg, `#00ff88` acce
 ## Module Layout
 
 ```
-src/osint/          56 OSINT reconnaissance modules
+src/osint/          63 OSINT reconnaissance modules
 src/core/           Runtime loop, executor, policy, retry
 src/planner/        Template/regex/knowledge/LLM planners
 src/cognition/      Hypothesis engine, belief updates, decisions
 src/verifier/       Action/state/goal verification
 src/llm/            LLM provider abstraction (Anthropic/OpenAI/Ollama)
 src/handlers/       Task execution (browser, HTTP, shell, OSINT, etc.)
-src/api/            Fastify server, 115+ routes, auth
+src/api/            Fastify server, 131+ routes, auth
 src/db/             SQLite client, schema, repository
 src/knowledge/      Procedural memory, failure patterns
 src/memory/         Episode store, semantic search
