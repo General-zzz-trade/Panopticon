@@ -719,4 +719,71 @@ export default async function osintRoutes(app: FastifyInstance) {
       },
     };
   });
+
+  // ══════════════════════════════════════════════════════
+  //  DEEP OSINT — NON-SEARCH DIFFERENTIATORS
+  // ══════════════════════════════════════════════════════
+
+  // ── Auto Pivot (chain discovery) ──────────────────────
+  app.post("/osint/pivot", async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { target: string; type?: string; maxDepth?: number; maxPivots?: number };
+    if (!body.target) return reply.code(400).send({ error: "target is required" });
+    const type = body.type || (body.target.includes("@") ? "email" : body.target.match(/^\d+\.\d+\.\d+\.\d+$/) ? "ip" : "domain");
+    const { autoPivot } = await import("../../osint/pivot-engine.js");
+    return { success: true, data: await autoPivot(type, body.target, { maxDepth: body.maxDepth, maxPivots: body.maxPivots }) };
+  });
+
+  // ── Infrastructure Overlap ────────────────────────────
+  app.post("/osint/overlap", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { targets } = request.body as { targets: string[] };
+    if (!targets || targets.length < 2) return reply.code(400).send({ error: "need at least 2 targets" });
+    const { analyzeOverlap } = await import("../../osint/infra-overlap.js");
+    return { success: true, data: await analyzeOverlap(targets) };
+  });
+
+  // ── Temporal Analysis ─────────────────────────────────
+  app.post("/osint/temporal", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { target } = request.body as { target: string };
+    if (!target) return reply.code(400).send({ error: "target domain is required" });
+    const { analyzeTemporalProfile } = await import("../../osint/temporal-analysis.js");
+    return { success: true, data: await analyzeTemporalProfile(target) };
+  });
+
+  // ── Email Security (SPF/DKIM/DMARC) ──────────────────
+  app.get("/osint/email-security/:domain", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { domain } = request.params as { domain: string };
+    const { analyzeEmailSecurity } = await import("../../osint/protocol-analysis.js");
+    return { success: true, data: await analyzeEmailSecurity(domain) };
+  });
+
+  // ── SSH Fingerprint ───────────────────────────────────
+  app.post("/osint/ssh", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { host, port } = request.body as { host: string; port?: number };
+    if (!host) return reply.code(400).send({ error: "host is required" });
+    const { collectSshFingerprint } = await import("../../osint/protocol-analysis.js");
+    return { success: true, data: await collectSshFingerprint(host, port) };
+  });
+
+  app.post("/osint/ssh/cross-match", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { hosts } = request.body as { hosts: string[] };
+    if (!hosts || hosts.length < 2) return reply.code(400).send({ error: "need at least 2 hosts" });
+    const { crossMatchSsh } = await import("../../osint/protocol-analysis.js");
+    return { success: true, data: await crossMatchSsh(hosts) };
+  });
+
+  // ── SMTP Banner ───────────────────────────────────────
+  app.post("/osint/smtp", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { host, port } = request.body as { host: string; port?: number };
+    if (!host) return reply.code(400).send({ error: "host is required" });
+    const { collectSmtpBanner } = await import("../../osint/protocol-analysis.js");
+    return { success: true, data: await collectSmtpBanner(host, port) };
+  });
+
+  // ── Attribution ───────────────────────────────────────
+  app.post("/osint/attribute", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { target } = request.body as { target: string };
+    if (!target) return reply.code(400).send({ error: "target domain is required" });
+    const { attributeTarget } = await import("../../osint/attribution.js");
+    return { success: true, data: await attributeTarget(target) };
+  });
 }

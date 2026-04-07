@@ -99,6 +99,22 @@ export { collectSocialMedia, searchReddit, searchHackerNews, scrapeTelegramChann
 export type { SocialMediaResult, SocialPost } from "./social-media.js";
 
 export { analyzeSentiment, extractEntities, analyzeKeywords, analyzeOpinion } from "./sentiment.js";
+
+// Deep OSINT (non-search differentiators)
+export { autoPivot } from "./pivot-engine.js";
+export type { PivotResult, PivotDiscovery } from "./pivot-engine.js";
+
+export { analyzeOverlap } from "./infra-overlap.js";
+export type { OverlapResult, InfraOverlap } from "./infra-overlap.js";
+
+export { analyzeTemporalProfile } from "./temporal-analysis.js";
+export type { TemporalResult, TemporalAnomaly } from "./temporal-analysis.js";
+
+export { collectSshFingerprint, crossMatchSsh, analyzeEmailSecurity, collectSmtpBanner } from "./protocol-analysis.js";
+export type { SshFingerprint, EmailSecurityResult, SmtpBannerResult } from "./protocol-analysis.js";
+
+export { attributeTarget } from "./attribution.js";
+export type { AttributionResult, Attribution } from "./attribution.js";
 export type { SentimentResult, OpinionAnalysis, ExtractedEntity } from "./sentiment.js";
 
 export { searchDarkWebIndexes } from "./darkweb.js";
