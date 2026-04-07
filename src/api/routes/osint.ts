@@ -786,4 +786,117 @@ export default async function osintRoutes(app: FastifyInstance) {
     const { attributeTarget } = await import("../../osint/attribution.js");
     return { success: true, data: await attributeTarget(target) };
   });
+
+  // ══════════════════════════════════════════════════════
+  //  PHYSICAL WORLD OSINT
+  // ══════════════════════════════════════════════════════
+
+  // ── Flight Tracking ───────────────────────────────────
+  app.post("/osint/flights/track", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { callsign } = request.body as { callsign: string };
+    if (!callsign) return reply.code(400).send({ error: "callsign is required" });
+    const { trackFlight } = await import("../../osint/flight-tracker.js");
+    return { success: true, data: await trackFlight(callsign) };
+  });
+
+  app.post("/osint/flights/area", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { lamin, lomin, lamax, lomax } = request.body as any;
+    if (!lamin) return reply.code(400).send({ error: "bounding box required" });
+    const { getFlightsInArea } = await import("../../osint/flight-tracker.js");
+    return { success: true, data: await getFlightsInArea(lamin, lomin, lamax, lomax) };
+  });
+
+  app.get("/osint/flights/airport/:icao", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { icao } = request.params as { icao: string };
+    const { getAirportFlights } = await import("../../osint/flight-tracker.js");
+    return { success: true, data: await getAirportFlights(icao) };
+  });
+
+  // ── Vessel/Ship Tracking ──────────────────────────────
+  app.post("/osint/vessels/search", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { query } = request.body as { query: string };
+    if (!query) return reply.code(400).send({ error: "query is required" });
+    const { searchVessel } = await import("../../osint/vessel-tracker.js");
+    return { success: true, data: await searchVessel(query) };
+  });
+
+  app.post("/osint/vessels/area", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { latMin, lonMin, latMax, lonMax } = request.body as any;
+    const { getVesselsInArea } = await import("../../osint/vessel-tracker.js");
+    return { success: true, data: await getVesselsInArea(latMin, lonMin, latMax, lonMax) };
+  });
+
+  app.get("/osint/vessels/port/:port", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { port } = request.params as { port: string };
+    const { getPortActivity } = await import("../../osint/vessel-tracker.js");
+    return { success: true, data: await getPortActivity(port) };
+  });
+
+  // ── Blockchain ────────────────────────────────────────
+  app.post("/osint/blockchain", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { address } = request.body as { address: string };
+    if (!address) return reply.code(400).send({ error: "address is required" });
+    const { analyzeBlockchainAddress } = await import("../../osint/blockchain.js");
+    return { success: true, data: await analyzeBlockchainAddress(address) };
+  });
+
+  // ── Company Intelligence ──────────────────────────────
+  app.post("/osint/company", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { query } = request.body as { query: string };
+    if (!query) return reply.code(400).send({ error: "query is required" });
+    const { domainToCompany } = await import("../../osint/company-intel.js");
+    return { success: true, data: await domainToCompany(query) };
+  });
+
+  // ── Geospatial Intelligence ───────────────────────────
+  app.post("/osint/geo", async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { target?: string; lat?: number; lon?: number };
+    if (!body.target && body.lat === undefined) return reply.code(400).send({ error: "target or lat/lon required" });
+    const { geospatialIntel } = await import("../../osint/geospatial.js");
+    const target = body.target || { lat: body.lat!, lon: body.lon! };
+    return { success: true, data: await geospatialIntel(target) };
+  });
+
+  app.post("/osint/geocode", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { query } = request.body as { query: string };
+    if (!query) return reply.code(400).send({ error: "query is required" });
+    const { geocode } = await import("../../osint/geospatial.js");
+    return { success: true, data: await geocode(query) };
+  });
+
+  app.post("/osint/earthquakes", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { lat, lon, radiusKm } = request.body as { lat: number; lon: number; radiusKm?: number };
+    const { getEarthquakes } = await import("../../osint/geospatial.js");
+    return { success: true, data: await getEarthquakes(lat, lon, radiusKm) };
+  });
+
+  // ── Sanctions Check ───────────────────────────────────
+  app.post("/osint/sanctions", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { query } = request.body as { query: string };
+    if (!query) return reply.code(400).send({ error: "query is required" });
+    const { checkSanctions } = await import("../../osint/sanctions.js");
+    return { success: true, data: await checkSanctions(query) };
+  });
+
+  // ── Academic / Patents ────────────────────────────────
+  app.post("/osint/academic", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { query } = request.body as { query: string };
+    if (!query) return reply.code(400).send({ error: "query is required" });
+    const { searchAcademicPapers } = await import("../../osint/public-records.js");
+    return { success: true, data: await searchAcademicPapers(query) };
+  });
+
+  app.post("/osint/patents", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { query } = request.body as { query: string };
+    if (!query) return reply.code(400).send({ error: "query is required" });
+    const { searchPatents } = await import("../../osint/public-records.js");
+    return { success: true, data: await searchPatents(query) };
+  });
+
+  app.post("/osint/research", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { query } = request.body as { query: string };
+    if (!query) return reply.code(400).send({ error: "query is required" });
+    const { researchEntity } = await import("../../osint/public-records.js");
+    return { success: true, data: await researchEntity(query) };
+  });
 }

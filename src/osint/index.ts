@@ -114,6 +114,28 @@ export { collectSshFingerprint, crossMatchSsh, analyzeEmailSecurity, collectSmtp
 export type { SshFingerprint, EmailSecurityResult, SmtpBannerResult } from "./protocol-analysis.js";
 
 export { attributeTarget } from "./attribution.js";
+
+// Physical world OSINT
+export { trackFlight, trackByIcao24, getFlightsInArea, getAirportFlights, getFlightHistory } from "./flight-tracker.js";
+export type { FlightState, FlightTrackResult, AirportFlights } from "./flight-tracker.js";
+
+export { searchVessel, lookupMmsi, getVesselsInArea, getPortActivity } from "./vessel-tracker.js";
+export type { VesselInfo, VesselSearchResult, PortActivity } from "./vessel-tracker.js";
+
+export { analyzeBlockchainAddress, analyzeBitcoinAddress, analyzeEthereumAddress } from "./blockchain.js";
+export type { BlockchainResult, WalletInfo } from "./blockchain.js";
+
+export { domainToCompany, searchOpenCorporates, searchSecEdgar } from "./company-intel.js";
+export type { CompanyInfo, CompanySearchResult } from "./company-intel.js";
+
+export { geocode, reverseGeocode, getWeather, getEarthquakes, getFireHotspots, geospatialIntel } from "./geospatial.js";
+export type { SatelliteResult, EarthquakeEvent } from "./geospatial.js";
+
+export { checkSanctions, checkOfac } from "./sanctions.js";
+export type { SanctionsResult, SanctionMatch } from "./sanctions.js";
+
+export { searchAcademicPapers, lookupAuthor, searchPatents, researchEntity } from "./public-records.js";
+export type { AcademicResult, PatentResult } from "./public-records.js";
 export type { AttributionResult, Attribution } from "./attribution.js";
 export type { SentimentResult, OpinionAnalysis, ExtractedEntity } from "./sentiment.js";
 
