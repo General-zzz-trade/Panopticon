@@ -279,12 +279,183 @@ async function runAllBenchmarks(): Promise<BenchmarkReport> {
   }, r => ({ ok: typeof r.vulnerable === "boolean", size: r.issues.length, detail: `vulnerable: ${r.vulnerable} | issues: ${r.issues.length}` })));
 
   // ── Report ──────────────────────────────────────────
-  console.log("▸ Report Generation\n");
+  console.log("▸ Report Generation");
 
   results.push(await runTest("report", "Markdown report", async () => {
     const { generateReport } = await import("./report-generator.js");
     return generateReport("test.com", {});
   }, r => ({ ok: r.markdown.length > 100, size: r.sections.length, detail: `${r.markdown.length} chars | risk: ${r.riskLevel}` })));
+
+  // ══════════════════════════════════════════════════════
+  //  NEW MODULES — DEEP OSINT + PHYSICAL WORLD
+  // ══════════════════════════════════════════════════════
+
+  // ── Pivot Engine ────────────────────────────────────
+  console.log("▸ Pivot Engine");
+
+  results.push(await runTest("pivot", "Auto pivot from domain", async () => {
+    const { autoPivot } = await import("./pivot-engine.js");
+    return autoPivot("domain", "example.com", { maxDepth: 1, maxPivots: 4 });
+  }, r => ({ ok: r.stats.totalEntities > 1, size: r.stats.totalEntities, detail: `${r.stats.totalEntities} entities, ${r.stats.pivotsPerformed} pivots` }), 30000));
+
+  // ── Temporal Analysis ───────────────────────────────
+  console.log("▸ Temporal Analysis");
+
+  results.push(await runTest("temporal", "Domain age + cert timeline", async () => {
+    const { analyzeTemporalProfile } = await import("./temporal-analysis.js");
+    return analyzeTemporalProfile("google.com");
+  }, r => ({ ok: !!r.domainAge, size: r.certTimeline.length, detail: `age: ${r.domainAge?.ageInDays}d | certs: ${r.certTimeline.length} | anomalies: ${r.anomalies.length}` }), 30000));
+
+  // ── Protocol Analysis ───────────────────────────────
+  console.log("▸ Protocol Analysis");
+
+  results.push(await runTest("protocol", "SPF/DKIM/DMARC analysis", async () => {
+    const { analyzeEmailSecurity } = await import("./protocol-analysis.js");
+    return analyzeEmailSecurity("google.com");
+  }, r => ({ ok: r.spf.exists || r.dkim.exists || r.dmarc.exists, size: r.securityScore, detail: `SPF:${r.spf.exists} DKIM:${r.dkim.exists} DMARC:${r.dmarc.exists} score:${r.securityScore}/100` }), 30000));
+
+  // ── Attribution ─────────────────────────────────────
+  console.log("▸ Attribution Engine");
+
+  results.push(await runTest("attribution", "Attribute domain owner", async () => {
+    const { attributeTarget } = await import("./attribution.js");
+    return attributeTarget("microsoft.com");
+  }, r => ({ ok: r.evidence.length > 0, size: r.evidence.length, detail: `evidence: ${r.evidence.length} | confidence: ${(r.confidence*100).toFixed(0)}% | ${r.summary.slice(0,60)}` }), 30000));
+
+  // ── News Collector ──────────────────────────────────
+  console.log("▸ News Collector");
+
+  results.push(await runTest("news-collector", "Google News search", async () => {
+    const { searchGoogleNews } = await import("./news-collector.js");
+    return searchGoogleNews("artificial intelligence", { count: 5 });
+  }, r => ({ ok: r.length > 0, size: r.length, detail: `${r.length} articles` })));
+
+  // ── Social Media ────────────────────────────────────
+  console.log("▸ Social Media");
+
+  results.push(await runTest("social-media", "HN search", async () => {
+    const { searchHackerNews } = await import("./social-media.js");
+    return searchHackerNews("AI", { limit: 3 });
+  }, r => ({ ok: r.length > 0, size: r.length, detail: `${r.length} posts` })));
+
+  // ── JS Analyzer ─────────────────────────────────────
+  console.log("▸ JS Analyzer");
+
+  results.push(await runTest("js-analyzer", "JS analysis", async () => {
+    const { analyzeJavaScript } = await import("./js-analyzer.js");
+    return analyzeJavaScript("https://example.com");
+  }, r => ({ ok: true, size: r.stats.filesAnalyzed, detail: `${r.stats.filesAnalyzed} files | ${r.stats.secretsFound} secrets | ${r.stats.endpointsFound} endpoints` }), 30000));
+
+  // ── Dir Bruteforce ──────────────────────────────────
+  console.log("▸ Dir Bruteforce");
+
+  results.push(await runTest("dirscan", "Directory scan (10 paths)", async () => {
+    const { dirBruteforce } = await import("./dir-bruteforce.js");
+    return dirBruteforce("https://example.com", { customPaths: ["/robots.txt", "/.env", "/.git/config", "/admin", "/favicon.ico"] });
+  }, r => ({ ok: r.stats.checked > 0, size: r.stats.found, detail: `checked: ${r.stats.checked} | found: ${r.stats.found}` })));
+
+  // ── API Discovery ───────────────────────────────────
+  console.log("▸ API Discovery");
+
+  results.push(await runTest("api-discovery", "Hidden API probe", async () => {
+    const { discoverApis } = await import("./api-discovery.js");
+    return discoverApis("https://example.com", { customPaths: ["/api", "/health", "/robots.txt"] });
+  }, r => ({ ok: true, size: r.endpoints.length, detail: `${r.endpoints.length} endpoints found` })));
+
+  // ── Typosquatting ───────────────────────────────────
+  console.log("▸ Typosquatting");
+
+  results.push(await runTest("typosquat", "Generate domain variants", async () => {
+    const { generateVariants } = await import("./typosquat.js");
+    return generateVariants("google.com");
+  }, r => ({ ok: r.length > 10, size: r.length, detail: `${r.length} variants generated` })));
+
+  // ── Flight Tracker ──────────────────────────────────
+  console.log("▸ Flight Tracker");
+
+  results.push(await runTest("flights", "Airport flights (KJFK)", async () => {
+    const { getAirportFlights } = await import("./flight-tracker.js");
+    return getAirportFlights("KJFK");
+  }, r => ({ ok: true, size: r.arrivals.length + r.departures.length, detail: `arrivals: ${r.arrivals.length} | departures: ${r.departures.length}` }), 20000));
+
+  // ── Blockchain ──────────────────────────────────────
+  console.log("▸ Blockchain");
+
+  results.push(await runTest("blockchain", "Bitcoin address analysis", async () => {
+    const { analyzeBitcoinAddress } = await import("./blockchain.js");
+    // Satoshi's genesis address
+    return analyzeBitcoinAddress("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa");
+  }, r => ({ ok: r.wallet.txCount > 0, size: r.wallet.txCount, detail: `balance: ${r.wallet.balance} BTC | tx: ${r.wallet.txCount} | related: ${r.relatedAddresses.length}` })));
+
+  // ── Company Intel ───────────────────────────────────
+  console.log("▸ Company Intel");
+
+  results.push(await runTest("company", "OpenCorporates search", async () => {
+    const { searchOpenCorporates } = await import("./company-intel.js");
+    return searchOpenCorporates("Google");
+  }, r => ({ ok: r.length > 0, size: r.length, detail: `${r.length} companies found` }), 20000));
+
+  // ── Geospatial ──────────────────────────────────────
+  console.log("▸ Geospatial");
+
+  results.push(await runTest("geospatial", "Geocoding", async () => {
+    const { geocode } = await import("./geospatial.js");
+    return geocode("Tokyo, Japan");
+  }, r => ({ ok: r.results.length > 0, size: r.results.length, detail: `${r.results[0]?.name?.slice(0,40)} (${r.results[0]?.lat}, ${r.results[0]?.lon})` })));
+
+  results.push(await runTest("geospatial", "Earthquakes near Tokyo", async () => {
+    const { getEarthquakes } = await import("./geospatial.js");
+    return getEarthquakes(35.68, 139.77, 300, 30);
+  }, r => ({ ok: true, size: r.events.length, detail: `${r.events.length} quakes | ${r.stats.significant} significant` })));
+
+  results.push(await runTest("geospatial", "Weather", async () => {
+    const { getWeather } = await import("./geospatial.js");
+    return getWeather(35.68, 139.77);
+  }, r => ({ ok: r.current.description.length > 0, size: 1, detail: `${r.current.temp}°C | ${r.current.description}` })));
+
+  // ── Sanctions ───────────────────────────────────────
+  console.log("▸ Sanctions");
+
+  results.push(await runTest("sanctions", "Check known entity", async () => {
+    const { checkSanctions } = await import("./sanctions.js");
+    return checkSanctions("Wagner Group");
+  }, r => ({ ok: r.matches.length > 0, size: r.matches.length, detail: `sanctioned: ${r.sanctioned} | matches: ${r.matches.length}` })));
+
+  // ── Academic / Patents ──────────────────────────────
+  console.log("▸ Public Records");
+
+  results.push(await runTest("academic", "Paper search", async () => {
+    const { searchAcademicPapers } = await import("./public-records.js");
+    return searchAcademicPapers("transformer neural network", 3);
+  }, r => ({ ok: r.papers.length > 0, size: r.papers.length, detail: `${r.papers.length} papers | ${r.stats.totalCitations} citations` })));
+
+  results.push(await runTest("patents", "Patent search", async () => {
+    const { searchPatents } = await import("./public-records.js");
+    return searchPatents("machine learning", 3);
+  }, r => ({ ok: r.patents.length > 0, size: r.patents.length, detail: `${r.patents.length} patents` })));
+
+  // ── Investigation Chain ─────────────────────────────
+  console.log("▸ Investigation Chain");
+
+  results.push(await runTest("chain", "Chain template list", async () => {
+    const { CHAIN_TEMPLATES } = await import("./investigation-chain.js");
+    return CHAIN_TEMPLATES;
+  }, r => ({ ok: Object.keys(r).length >= 5, size: Object.keys(r).length, detail: `${Object.keys(r).length} templates: ${Object.keys(r).join(", ")}` })));
+
+  // ── Subdomain Takeover ──────────────────────────────
+  console.log("▸ Subdomain Takeover");
+
+  results.push(await runTest("takeover", "Check takeover (safe domain)", async () => {
+    const { checkTakeover } = await import("./subdomain-takeover.js");
+    return checkTakeover("www.google.com");
+  }, r => ({ ok: typeof r.vulnerable === "boolean", size: 1, detail: `vulnerable: ${r.vulnerable} | cname: ${r.cname || "none"}` })));
+
+  // ── WAF Detect (already tested above but add CDN detail) ──
+  // ── Cloud Enum (skip — too slow for benchmark) ──
+  // ── Crawler (skip — needs real site crawl) ──
+  // ── GitHub Recon (skip — rate limited) ──
+
+  console.log("▸ Done\n");
 
   // ── Summary ─────────────────────────────────────────
 
