@@ -169,14 +169,15 @@ function buildRuleBasedPlan(target: string): InvestigationPlan {
     return {
       target, targetType: "domain",
       phases: [
-        { name: "Phase 1: Infrastructure Discovery", modules: ["domain_recon", "network_recon"], purpose: "Map DNS, IPs, subdomains, open ports" },
-        { name: "Phase 2: Web Analysis", modules: ["web_intel", "js_analyzer", "waf_detect"], purpose: "Identify technology stack, secrets, WAF" },
-        { name: "Phase 3: Threat Assessment", modules: ["threat_intel", "subdomain_takeover", "cve_matcher"], purpose: "Check threats, vulnerabilities, takeover risk" },
-        { name: "Phase 4: Organization Intel", modules: ["company_intel", "github_recon"], purpose: "Identify owning organization, code leaks", dependsOn: "Phase 1" },
-        { name: "Phase 5: Deep Analysis", modules: ["api_discovery", "cloud_enum"], purpose: "Find hidden APIs, exposed storage", dependsOn: "Phase 2" },
+        { name: "Phase 1: Infrastructure", modules: ["domain_recon", "nmap_scan"], purpose: "DNS, WHOIS, subdomains, full port scan" },
+        { name: "Phase 2: Web & Security", modules: ["web_intel", "waf_detect", "email_security", "url_safety"], purpose: "Tech stack, WAF/CDN, SPF/DKIM/DMARC, URL safety" },
+        { name: "Phase 3: Threat & Vuln", modules: ["threat_intel", "dir_scan"], purpose: "Malware check, DNSBL, sensitive path scan" },
+        { name: "Phase 4: Intelligence", modules: ["company_intel", "attribution", "email_harvest"], purpose: "Company identity, ownership attribution, email discovery" },
+        { name: "Phase 5: Media & Sentiment", modules: ["news_collector", "twitter", "social_media"], purpose: "News coverage, social media sentiment, public opinion" },
+        { name: "Phase 6: Deep Analysis", modules: ["pivot", "temporal"], purpose: "Auto-pivot entity expansion, temporal anomaly detection", dependsOn: "Phase 1" },
       ],
-      estimatedDuration: "3-5 minutes",
-      reasoning: "Domain target: start with infrastructure, then analyze web presence, check threats, identify organization, and probe for hidden assets.",
+      estimatedDuration: "5-8 minutes",
+      reasoning: "Full domain investigation: infrastructure → security → threats → intelligence → media → deep analysis. 18 modules across 6 phases.",
     };
   }
 

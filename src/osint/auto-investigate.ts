@@ -231,6 +231,18 @@ async function executeModule(module: string, target: string): Promise<any> {
     case "social_media": { const { collectSocialMedia } = await import("./social-media.js"); return collectSocialMedia(target); }
     case "blockchain": { const { analyzeBlockchainAddress } = await import("./blockchain.js"); return analyzeBlockchainAddress(target); }
     case "sanctions": { const { checkSanctions } = await import("./sanctions.js"); return checkSanctions(target); }
+    // Extended modules
+    case "email_security": { const { analyzeEmailSecurity } = await import("./protocol-analysis.js"); return analyzeEmailSecurity(target); }
+    case "nmap_scan": { const { nmapQuickScan } = await import("./nmap-scanner.js"); return nmapQuickScan(target); }
+    case "url_safety": { const { checkUrlSafety } = await import("./safebrowsing.js"); return checkUrlSafety(target.startsWith("http") ? target : `https://${target}`); }
+    case "email_harvest": { const { harvestEmails } = await import("./email-harvester.js"); return harvestEmails(target); }
+    case "attribution": { const { attributeTarget } = await import("./attribution.js"); return attributeTarget(target); }
+    case "temporal": { const { analyzeTemporalProfile } = await import("./temporal-analysis.js"); return analyzeTemporalProfile(target); }
+    case "pivot": { const { autoPivot } = await import("./pivot-engine.js"); return autoPivot("domain", target, { maxDepth: 2, maxPivots: 8 }); }
+    case "dir_scan": { const { dirBruteforce } = await import("./dir-bruteforce.js"); return dirBruteforce(target.startsWith("http") ? target : `https://${target}`); }
+    case "twitter": { const { searchTwitter } = await import("./twitter-intel.js"); return searchTwitter(target, { sentiment: true }); }
+    case "blogs": { const { monitorOfficialBlogs } = await import("./media-collector.js"); return monitorOfficialBlogs([target.split(".")[0]]); }
+    case "geospatial": { const { geocode } = await import("./geospatial.js"); return geocode(target); }
     default: return null;
   }
 }
