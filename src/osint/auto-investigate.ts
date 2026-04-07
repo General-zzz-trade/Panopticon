@@ -93,12 +93,13 @@ function calculateMultiDimensionScore(findings: Record<string, any>): MultiDimen
     }
   }
 
-  // Dir scan findings
+  // Dir scan findings (cap contribution to avoid false positive inflation)
   if (f.dir_scan) {
-    const critical = f.dir_scan.found?.filter((d: any) => d.severity === "critical").length || 0;
-    const high = f.dir_scan.found?.filter((d: any) => d.severity === "high").length || 0;
-    if (critical > 0) { vulnerability += critical * 20; breakdown.push(`${critical} critical paths exposed (.env, .git, etc.)`); }
-    if (high > 0) { vulnerability += high * 10; breakdown.push(`${high} high-risk paths found`); }
+    const critical = f.dir_scan.found?.filter((d: any) => d.severity === "critical" && d.status === 200).length || 0;
+    const high = f.dir_scan.found?.filter((d: any) => d.severity === "high" && d.status === 200).length || 0;
+    // If too many "high" hits (>10), likely false positives from app routing
+    if (critical > 0 && critical < 5) { vulnerability += Math.min(critical * 20, 40); breakdown.push(`${critical} critical paths exposed`); }
+    if (high > 0 && high < 8) { vulnerability += Math.min(high * 5, 20); breakdown.push(`${high} high-risk paths found`); }
   }
 
   // Vulnerability dimension

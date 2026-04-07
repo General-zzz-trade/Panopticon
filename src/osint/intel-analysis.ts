@@ -173,6 +173,22 @@ function assessSourceReliability(sources: string[]): SourceAssessment[] {
     "search-engine": { rel: "D", cred: "4", notes: "Web search results, surface-level, not independently verified" },
     "pattern-guess": { rel: "E", cred: "5", notes: "Algorithmic inference, not based on observed data" },
     "syndication": { rel: "C", cred: "3", notes: "Platform-provided embed data, may be incomplete" },
+    // Module name aliases
+    "domain_recon": { rel: "A", cred: "1", notes: "WHOIS + DNS + CT logs, authoritative and verifiable" },
+    "nmap_scan": { rel: "A", cred: "1", notes: "Direct nmap port scanning, technically verifiable" },
+    "web_intel": { rel: "B", cred: "2", notes: "Tech stack detection + Wayback + robots.txt" },
+    "waf_detect": { rel: "B", cred: "2", notes: "HTTP header/cookie fingerprinting" },
+    "email_security": { rel: "A", cred: "1", notes: "SPF/DKIM/DMARC DNS records, authoritative" },
+    "url_safety": { rel: "B", cred: "2", notes: "Multi-engine URL check (Google/URLhaus/PhishTank)" },
+    "threat_intel": { rel: "B", cred: "2", notes: "URLhaus + DNSBL + SSL + pattern analysis" },
+    "dir_scan": { rel: "C", cred: "3", notes: "Directory probing, may have false positives on app-routed sites" },
+    "company_intel": { rel: "C", cred: "3", notes: "SEC EDGAR + Wikipedia, mixed quality" },
+    "attribution": { rel: "C", cred: "3", notes: "Multi-source inference, moderate confidence" },
+    "email_harvest": { rel: "C", cred: "3", notes: "Web scraping + pattern guessing" },
+    "news_collector": { rel: "B", cred: "3", notes: "Google News RSS + publisher feeds" },
+    "social_media": { rel: "D", cred: "4", notes: "HN + Reddit, community content" },
+    "pivot": { rel: "B", cred: "2", notes: "Automated chain discovery from verified DNS/WHOIS" },
+    "temporal": { rel: "B", cred: "2", notes: "Certificate timeline + domain age analysis" },
   };
 
   for (const source of [...new Set(sources)]) {
@@ -294,60 +310,48 @@ function generateIndicators(entities: { text: string; type: string }[], context:
 
 // ── Identify Intelligence Gaps ──────────────────────────
 
+function detectTargetType(subject: string, context: string): "domain" | "person" | "organization" | "generic" {
+  if (subject.includes(".") && !subject.includes(" ")) return "domain";
+  if (context.includes("总统") || context.includes("president") || context.includes("CEO")) return "person";
+  if (context.includes("company") || context.includes("公司") || context.includes("Corp")) return "organization";
+  return "generic";
+}
+
 function identifyGaps(
   entities: { text: string; type: string }[],
   context: string,
   sources: string[]
 ): IntelGap[] {
   const gaps: IntelGap[] = [];
+  const targetType = detectTargetType("", context);
 
-  const hasFinancial = context.includes("资产") || context.includes("财产") || context.includes("income");
-  const hasFamily = context.includes("家") || context.includes("family") || context.includes("spouse");
-  const hasMilitary = context.includes("军事") || context.includes("military") || context.includes("defense");
-  const hasBackchannel = context.includes("秘密") || context.includes("非公开") || context.includes("unofficial");
-
-  if (!hasFinancial) {
-    gaps.push({
-      question: "What are the subject's financial assets and income sources?",
-      importance: "significant",
-      suggestedCollection: "Public financial disclosures, property records, corporate registrations",
-      currentAssessment: "No financial data collected in current investigation",
-    });
+  // Domain-specific gaps
+  if (targetType === "domain" || context.includes("subdomain") || context.includes("port")) {
+    if (!context.includes("takeover")) {
+      gaps.push({ question: "Are any subdomains vulnerable to takeover?", importance: "critical", suggestedCollection: "Check CNAME records for dangling references to decommissioned services", currentAssessment: "Subdomain takeover scan not included in current investigation" });
+    }
+    if (!context.includes("内部") && !context.includes("internal")) {
+      gaps.push({ question: "What internal services are exposed unintentionally?", importance: "significant", suggestedCollection: "Deep port scan (1-65535) + service version fingerprinting", currentAssessment: "Only top ports scanned" });
+    }
+    if (!context.includes("history") && !context.includes("历史")) {
+      gaps.push({ question: "How has the infrastructure changed over the past year?", importance: "useful", suggestedCollection: "Historical DNS records, Wayback Machine snapshots, CT log timeline", currentAssessment: "Only current state analyzed" });
+    }
   }
 
-  if (!hasFamily) {
-    gaps.push({
-      question: "What is the subject's family network and their influence?",
-      importance: "useful",
-      suggestedCollection: "Public records, social media, genealogy databases",
-      currentAssessment: "Family connections not analyzed",
-    });
+  // Person-specific gaps
+  if (targetType === "person") {
+    gaps.push({ question: "What are the subject's financial assets and affiliations?", importance: "significant", suggestedCollection: "Public financial disclosures, property records, corporate registrations", currentAssessment: "No financial data collected" });
+    gaps.push({ question: "What is the subject's network of close associates?", importance: "critical", suggestedCollection: "Social media analysis, co-authorship, event attendance", currentAssessment: "Only platform presence checked, not relationship mapping" });
   }
 
-  if (hasMilitary) {
-    gaps.push({
-      question: "What is the current military readiness level and specific capabilities?",
-      importance: "critical",
-      suggestedCollection: "Satellite imagery, defense publications, military attaché reports",
-      currentAssessment: "Only public news reports available — classified details unknown",
-    });
+  // Organization-specific gaps
+  if (targetType === "organization") {
+    gaps.push({ question: "What is the organization's ownership structure?", importance: "critical", suggestedCollection: "SEC filings, corporate registry, beneficial ownership databases", currentAssessment: "Only surface-level company search performed" });
+    gaps.push({ question: "What are the organization's key vendor and partner relationships?", importance: "significant", suggestedCollection: "SPF includes, technology integrations, press releases", currentAssessment: "Partial data from SPF/technology detection" });
   }
 
-  if (!hasBackchannel) {
-    gaps.push({
-      question: "Are there unofficial diplomatic channels operating outside public view?",
-      importance: "critical",
-      suggestedCollection: "HUMINT, travel records, private meeting schedules",
-      currentAssessment: "Cannot be determined from OSINT sources alone",
-    });
-  }
-
-  gaps.push({
-    question: "What are the adversary's decision-making calculus and red lines?",
-    importance: "critical",
-    suggestedCollection: "Analysis of official statements, policy documents, expert interviews",
-    currentAssessment: "Requires deep analytical assessment beyond data collection",
-  });
+  // Universal gaps
+  gaps.push({ question: "What information exists in non-public databases?", importance: "useful", suggestedCollection: "Commercial OSINT platforms (Shodan, SecurityTrails, VirusTotal Enterprise)", currentAssessment: "Only free public sources used — premium data unavailable" });
 
   return gaps;
 }
@@ -418,6 +422,60 @@ export function generateIntelReport(
     });
   }
 
+  // Domain-specific judgments (infrastructure, security posture)
+  const targetType = detectTargetType(subject, data.rawContext);
+  if (targetType === "domain") {
+    // Subdomains
+    const subCount = data.rawContext.match(/subdomains[":]*\s*(\d+)/)?.[1];
+    if (subCount && parseInt(subCount) > 50) {
+      keyJudgments.push({
+        judgment: `${subject} has a large attack surface with ${subCount} discovered subdomains.`,
+        confidence: "high",
+        reasoning: "Large number of subdomains increases the risk of abandoned or misconfigured services that could be exploited.",
+        evidence: [`${subCount} subdomains discovered via CT logs and DNS brute-force`],
+      });
+    }
+
+    // Email security
+    const emailScore = data.rawContext.match(/emailSecurity[":]*\s*(\d+)/)?.[1];
+    if (emailScore) {
+      const score = parseInt(emailScore);
+      keyJudgments.push({
+        judgment: score >= 80
+          ? `${subject} maintains strong email security posture (${score}/100).`
+          : `${subject} has weak email security (${score}/100) — vulnerable to spoofing.`,
+        confidence: "high",
+        reasoning: `Email security score ${score}/100 based on SPF/DKIM/DMARC configuration.`,
+        evidence: [`Email security audit: ${score}/100`],
+      });
+    }
+
+    // Threat risk
+    const threatScore = data.rawContext.match(/threats[":]*\s*(\d+)/)?.[1];
+    if (threatScore) {
+      const tr = parseInt(threatScore);
+      if (tr > 50) {
+        keyJudgments.push({
+          judgment: `${subject} shows elevated threat indicators (risk score: ${tr}/100).`,
+          confidence: "moderate",
+          reasoning: "Multiple threat intelligence sources flagged the target.",
+          evidence: [`Threat risk score: ${tr}/100`],
+        });
+      }
+    }
+
+    // Attribution
+    const attribution = data.rawContext.match(/attribution[":]*\s*"([^"]+)"/)?.[1];
+    if (attribution && attribution !== "N/A") {
+      keyJudgments.push({
+        judgment: `${subject} is attributed to ${attribution}.`,
+        confidence: "moderate",
+        reasoning: "Attribution based on WHOIS, certificates, DNS, Wikipedia, and DuckDuckGo evidence.",
+        evidence: [`Attribution analysis result`],
+      });
+    }
+  }
+
   // Ensure at least one judgment
   if (keyJudgments.length === 0) {
     keyJudgments.push({
@@ -428,24 +486,43 @@ export function generateIntelReport(
     });
   }
 
-  // ACH
+  // ACH — adapt to target type
+  let defaultAchQuestion: string;
+  let defaultHypotheses: { statement: string; evidenceFor: string[]; evidenceAgainst: string[] }[];
+
+  if (targetType === "domain") {
+    defaultAchQuestion = `What is the security posture of ${subject}?`;
+    defaultHypotheses = [
+      {
+        statement: `${subject} has a strong security posture with proactive defense`,
+        evidenceFor: data.newsHeadlines.filter(h => h.toLowerCase().match(/secur|protect|patch|update|defense|waf/)).map(h => h.slice(0, 80)),
+        evidenceAgainst: data.newsHeadlines.filter(h => h.toLowerCase().match(/breach|hack|vuln|leak|exposed/)).map(h => h.slice(0, 80)),
+      },
+      {
+        statement: `${subject} has security weaknesses that could be exploited`,
+        evidenceFor: data.newsHeadlines.filter(h => h.toLowerCase().match(/breach|vuln|leak|exposed|attack/)).map(h => h.slice(0, 80)),
+        evidenceAgainst: data.newsHeadlines.filter(h => h.toLowerCase().match(/secur|patch|protect|award/)).map(h => h.slice(0, 80)),
+      },
+    ];
+  } else {
+    defaultAchQuestion = `What is the primary strategic direction of ${subject}?`;
+    defaultHypotheses = [
+      {
+        statement: `${subject} is pursuing a defensive posture to maintain the status quo`,
+        evidenceFor: data.newsHeadlines.filter(h => h.includes("defense") || h.includes("防御") || h.includes("稳定")).map(h => h.slice(0, 80)),
+        evidenceAgainst: data.newsHeadlines.filter(h => h.includes("provoc") || h.includes("挑衅") || h.includes("独立")).map(h => h.slice(0, 80)),
+      },
+      {
+        statement: `${subject} is actively changing the status quo`,
+        evidenceFor: data.newsHeadlines.filter(h => h.includes("independence") || h.includes("独立") || h.includes("主权")).map(h => h.slice(0, 80)),
+        evidenceAgainst: data.newsHeadlines.filter(h => h.includes("peace") || h.includes("和平") || h.includes("对话")).map(h => h.slice(0, 80)),
+      },
+    ];
+  }
+
   const hypothesisAnalysis = data.customHypotheses
     ? buildAch(data.customHypotheses.question, data.customHypotheses.hypotheses)
-    : buildAch(
-        `What is the primary strategic direction of ${subject}?`,
-        [
-          {
-            statement: `${subject} is pursuing a defensive posture to maintain the status quo`,
-            evidenceFor: data.newsHeadlines.filter(h => h.includes("defense") || h.includes("防御") || h.includes("稳定")).map(h => h.slice(0, 80)),
-            evidenceAgainst: data.newsHeadlines.filter(h => h.includes("provoc") || h.includes("挑衅") || h.includes("独立")).map(h => h.slice(0, 80)),
-          },
-          {
-            statement: `${subject} is actively changing the status quo`,
-            evidenceFor: data.newsHeadlines.filter(h => h.includes("independence") || h.includes("独立") || h.includes("主权")).map(h => h.slice(0, 80)),
-            evidenceAgainst: data.newsHeadlines.filter(h => h.includes("peace") || h.includes("和平") || h.includes("对话") || h.includes("status quo")).map(h => h.slice(0, 80)),
-          },
-        ]
-      );
+    : buildAch(defaultAchQuestion, defaultHypotheses);
 
   // Network
   const networkAnalysis = buildNetwork(data.entities, data.relations);
