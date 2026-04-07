@@ -943,4 +943,61 @@ export default async function osintRoutes(app: FastifyInstance) {
     const { generateNextSteps } = await import("../../osint/deep-profile.js");
     return { success: true, data: generateNextSteps(findings) };
   });
+
+  // ══════════════════════════════════════════════════════
+  //  INTELLIGENCE-GRADE CAPABILITIES
+  // ══════════════════════════════════════════════════════
+
+  // ── Full Auto Investigation ───────────────────────────
+  app.post("/osint/auto", async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { target: string; depth?: string };
+    if (!body.target) return reply.code(400).send({ error: "target is required" });
+    const { autoInvestigate } = await import("../../osint/auto-investigate.js");
+    return { success: true, data: await autoInvestigate(body.target, { depth: body.depth as any }) };
+  });
+
+  // ── LLM Analysis ─────────────────────────────────────
+  app.post("/osint/ai/extract", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { text } = request.body as { text: string };
+    if (!text) return reply.code(400).send({ error: "text is required" });
+    const { llmExtractEntities } = await import("../../osint/llm-analyst.js");
+    return { success: true, data: await llmExtractEntities(text) };
+  });
+
+  app.post("/osint/ai/plan", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { target, context } = request.body as { target: string; context?: string };
+    if (!target) return reply.code(400).send({ error: "target is required" });
+    const { llmPlanInvestigation } = await import("../../osint/llm-analyst.js");
+    return { success: true, data: await llmPlanInvestigation(target, context) };
+  });
+
+  app.post("/osint/ai/report", async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { target: string; findings: Record<string, any> };
+    if (!body.target || !body.findings) return reply.code(400).send({ error: "target and findings required" });
+    const { llmGenerateReport } = await import("../../osint/llm-analyst.js");
+    return { success: true, data: await llmGenerateReport(body.findings, body.target) };
+  });
+
+  // ── Passive Monitoring ────────────────────────────────
+  app.post("/osint/passive/check", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { domain, since } = request.body as { domain: string; since?: string };
+    if (!domain) return reply.code(400).send({ error: "domain is required" });
+    const { runPassiveCheck } = await import("../../osint/passive-monitor.js");
+    return { success: true, data: await runPassiveCheck(domain, { since }) };
+  });
+
+  // ── STIX/MISP Export ──────────────────────────────────
+  app.post("/osint/export/stix", async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { target: string; findings: Record<string, any> };
+    if (!body.target || !body.findings) return reply.code(400).send({ error: "target and findings required" });
+    const { investigationToStix } = await import("../../osint/stix-export.js");
+    return { success: true, data: investigationToStix(body.target, body.findings) };
+  });
+
+  app.post("/osint/export/misp", async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { target: string; findings: Record<string, any> };
+    if (!body.target || !body.findings) return reply.code(400).send({ error: "target and findings required" });
+    const { investigationToMisp } = await import("../../osint/stix-export.js");
+    return { success: true, data: investigationToMisp(body.target, body.findings) };
+  });
 }

@@ -141,6 +141,18 @@ export { deepExtractEntities, discoverRelations, correlateFindings, deepAnalyze 
 export type { DeepEntity, DeepRelation, DeepExtractionResult, CorrelationResult } from "./deep-extract.js";
 
 export { buildHistoricalProfile, buildPersonProfile, generateNextSteps } from "./deep-profile.js";
+
+export { llmExtractEntities, llmPlanInvestigation, llmGenerateReport } from "./llm-analyst.js";
+export type { LlmAnalysisResult, InvestigationPlan } from "./llm-analyst.js";
+
+export { checkNewCertificates, checkBgpChanges, captureDnsBaseline, detectDnsChanges, runPassiveCheck } from "./passive-monitor.js";
+export type { PassiveAlert, DnsBaseline } from "./passive-monitor.js";
+
+export { investigationToStix, investigationToMisp } from "./stix-export.js";
+export type { StixBundle, MispEvent } from "./stix-export.js";
+
+export { autoInvestigate } from "./auto-investigate.js";
+export type { AutoInvestigationResult, MultiDimensionScore } from "./auto-investigate.js";
 export type { HistoricalProfile, PersonProfile, NextStep } from "./deep-profile.js";
 export type { AcademicResult, PatentResult } from "./public-records.js";
 export type { AttributionResult, Attribution } from "./attribution.js";
