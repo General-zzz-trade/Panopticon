@@ -1,6 +1,6 @@
 /**
- * Public Records — academic papers, patents, court records
- * Free APIs: Semantic Scholar, USPTO, PACER (limited), Google Scholar (scrape)
+ * Public Records — academic papers, patents
+ * Free APIs: OpenAlex (academic, unlimited free), Google Patents XHR
  */
 
 export interface AcademicResult {
@@ -49,43 +49,73 @@ export interface Patent {
   url: string;
 }
 
-// ── Semantic Scholar (free API, no key) ─────────────────
+// ── OpenAlex (free, no key, no rate limit) ──────────────
 
 export async function searchAcademicPapers(query: string, limit = 10): Promise<AcademicResult> {
   const papers: AcademicPaper[] = [];
   const authorMap = new Map<string, AuthorProfile>();
 
+  // Source 1: OpenAlex (completely free, unlimited, no key)
   try {
     const response = await fetch(
-      `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&limit=${limit}&fields=title,authors,year,venue,abstract,citationCount,externalIds,url`,
+      `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per_page=${limit}&sort=cited_by_count:desc&mailto=panopticon@example.com`,
       { signal: AbortSignal.timeout(15000) }
     );
     if (response.ok) {
       const data = await response.json();
-      for (const paper of (data.data || [])) {
+      for (const work of (data.results || [])) {
+        const authors = (work.authorships || []).map((a: any) => a.author?.display_name).filter(Boolean);
+
         papers.push({
-          title: paper.title,
-          authors: (paper.authors || []).map((a: any) => a.name),
-          year: paper.year,
-          venue: paper.venue,
-          abstract: paper.abstract?.slice(0, 300),
-          citationCount: paper.citationCount || 0,
-          url: paper.url,
-          doi: paper.externalIds?.DOI,
+          title: work.title || "",
+          authors,
+          year: work.publication_year,
+          venue: work.primary_location?.source?.display_name,
+          abstract: work.abstract_inverted_index ? reconstructAbstract(work.abstract_inverted_index) : undefined,
+          citationCount: work.cited_by_count || 0,
+          url: work.primary_location?.landing_page_url || work.id,
+          doi: work.doi?.replace("https://doi.org/", ""),
         });
 
-        // Build author profiles
-        for (const author of (paper.authors || [])) {
-          const existing = authorMap.get(author.name) || {
-            name: author.name, affiliations: [], paperCount: 0, citationCount: 0,
+        for (const authorship of (work.authorships || [])) {
+          const name = authorship.author?.display_name;
+          if (!name) continue;
+          const existing = authorMap.get(name) || {
+            name, affiliations: [], paperCount: 0, citationCount: 0,
           };
           existing.paperCount++;
-          existing.citationCount += paper.citationCount || 0;
-          authorMap.set(author.name, existing);
+          existing.citationCount += work.cited_by_count || 0;
+          const inst = authorship.institutions?.[0]?.display_name;
+          if (inst && !(existing.affiliations as string[]).includes(inst)) (existing.affiliations as string[]).push(inst);
+          authorMap.set(name, existing);
         }
       }
     }
   } catch {}
+
+  // Source 2: Semantic Scholar (backup, rate limited)
+  if (papers.length === 0) {
+    try {
+      await new Promise(r => setTimeout(r, 1000)); // Respect rate limit
+      const response = await fetch(
+        `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&limit=${limit}&fields=title,authors,year,venue,citationCount,url`,
+        { signal: AbortSignal.timeout(15000) }
+      );
+      if (response.ok) {
+        const data = await response.json();
+        for (const paper of (data.data || [])) {
+          papers.push({
+            title: paper.title,
+            authors: (paper.authors || []).map((a: any) => a.name),
+            year: paper.year,
+            venue: paper.venue,
+            citationCount: paper.citationCount || 0,
+            url: paper.url,
+          });
+        }
+      }
+    } catch {}
+  }
 
   const totalCitations = papers.reduce((s, p) => s + p.citationCount, 0);
 
@@ -98,25 +128,37 @@ export async function searchAcademicPapers(query: string, limit = 10): Promise<A
   };
 }
 
-// ── Author Lookup ───────────────────────────────────────
+// Reconstruct abstract from OpenAlex inverted index format
+function reconstructAbstract(invertedIndex: Record<string, number[]>): string {
+  const words: [number, string][] = [];
+  for (const [word, positions] of Object.entries(invertedIndex)) {
+    for (const pos of positions) {
+      words.push([pos, word]);
+    }
+  }
+  words.sort((a, b) => a[0] - b[0]);
+  return words.map(w => w[1]).join(" ").slice(0, 500);
+}
+
+// ── Author Lookup (OpenAlex) ────────────────────────────
 
 export async function lookupAuthor(name: string): Promise<AuthorProfile | null> {
   try {
     const response = await fetch(
-      `https://api.semanticscholar.org/graph/v1/author/search?query=${encodeURIComponent(name)}&limit=1&fields=name,affiliations,paperCount,citationCount,hIndex,url`,
+      `https://api.openalex.org/authors?search=${encodeURIComponent(name)}&per_page=1&mailto=panopticon@example.com`,
       { signal: AbortSignal.timeout(10000) }
     );
     if (response.ok) {
       const data = await response.json();
-      const author = data.data?.[0];
+      const author = data.results?.[0];
       if (author) {
         return {
-          name: author.name,
-          affiliations: author.affiliations || [],
-          paperCount: author.paperCount || 0,
-          citationCount: author.citationCount || 0,
-          hIndex: author.hIndex,
-          url: author.url,
+          name: author.display_name,
+          affiliations: author.affiliations?.map((a: any) => a.institution?.display_name).filter(Boolean) || [],
+          paperCount: author.works_count || 0,
+          citationCount: author.cited_by_count || 0,
+          hIndex: author.summary_stats?.h_index,
+          url: author.id,
         };
       }
     }
@@ -124,31 +166,36 @@ export async function lookupAuthor(name: string): Promise<AuthorProfile | null> 
   return null;
 }
 
-// ── Patent Search (USPTO — free) ────────────────────────
+// ── Google Patents XHR (free, no key) ───────────────────
 
 export async function searchPatents(query: string, limit = 10): Promise<PatentResult> {
   const patents: Patent[] = [];
 
-  // USPTO PatentsView API (free, no key)
   try {
     const response = await fetch(
-      `https://api.patentsview.org/patents/query?q={"_text_any":{"patent_abstract":"${query.replace(/"/g, "")}"}}&f=["patent_number","patent_title","patent_abstract","patent_date","assignee_organization","inventor_first_name","inventor_last_name"]&o={"page":1,"per_page":${limit}}`,
-      { signal: AbortSignal.timeout(15000) }
+      `https://patents.google.com/xhr/query?url=q%3D${encodeURIComponent(query)}&exp=&num=${limit}`,
+      {
+        signal: AbortSignal.timeout(15000),
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; Panopticon/1.0)" },
+      }
     );
     if (response.ok) {
       const data = await response.json();
-      for (const p of (data.patents || [])) {
-        const inventors = (p.inventors || []).map((i: any) => `${i.inventor_first_name} ${i.inventor_last_name}`);
-        const assignee = p.assignees?.[0]?.assignee_organization;
+      const results = data.results?.cluster?.[0]?.result || [];
+
+      for (const r of results.slice(0, limit)) {
+        const p = r.patent;
+        if (!p) continue;
 
         patents.push({
-          title: p.patent_title,
-          patentNumber: p.patent_number,
-          inventors,
-          assignee,
-          grantDate: p.patent_date,
-          abstract: p.patent_abstract?.slice(0, 300),
-          url: `https://patents.google.com/patent/US${p.patent_number}`,
+          title: (p.title || "").replace(/<[^>]+>/g, ""),
+          patentNumber: p.publication_number || r.id?.replace("patent/", "").split("/")[0] || "",
+          inventors: p.inventor ? [p.inventor] : [],
+          assignee: p.assignee,
+          filingDate: p.filing_date,
+          grantDate: p.grant_date || p.publication_date,
+          abstract: (p.snippet || "").replace(/<[^>]+>/g, "").slice(0, 300),
+          url: `https://patents.google.com/${r.id || ""}`,
         });
       }
     }
@@ -162,7 +209,7 @@ export async function searchPatents(query: string, limit = 10): Promise<PatentRe
   };
 }
 
-// ── Domain/Company → Academic + Patent Research ─────────
+// ── Combined Research ───────────────────────────────────
 
 export async function researchEntity(query: string): Promise<{
   academic: AcademicResult;

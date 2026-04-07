@@ -125,7 +125,7 @@ export type { VesselInfo, VesselSearchResult, PortActivity } from "./vessel-trac
 export { analyzeBlockchainAddress, analyzeBitcoinAddress, analyzeEthereumAddress } from "./blockchain.js";
 export type { BlockchainResult, WalletInfo } from "./blockchain.js";
 
-export { domainToCompany, searchOpenCorporates, searchSecEdgar } from "./company-intel.js";
+export { domainToCompany, searchSecEdgar, searchUkCompanies, searchWikipedia } from "./company-intel.js";
 export type { CompanyInfo, CompanySearchResult } from "./company-intel.js";
 
 export { geocode, reverseGeocode, getWeather, getEarthquakes, getFireHotspots, geospatialIntel } from "./geospatial.js";

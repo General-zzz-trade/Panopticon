@@ -1,13 +1,13 @@
 /**
  * Company Intelligence — corporate registry, ownership, financial data
- * Uses free public APIs: OpenCorporates, SEC EDGAR, UK Companies House
+ * Uses free public sources: SEC EDGAR full-text search, UK Companies House, Wikipedia
  */
 
 export interface CompanyInfo {
   name: string;
   jurisdiction?: string;
   registrationNumber?: string;
-  status?: string;        // Active, Dissolved, etc.
+  status?: string;
   incorporationDate?: string;
   companyType?: string;
   address?: string;
@@ -30,47 +30,15 @@ export interface CompanySearchResult {
   timestamp: string;
 }
 
-// ── OpenCorporates (free, no key, limited results) ──────
-
-export async function searchOpenCorporates(query: string): Promise<CompanyInfo[]> {
-  const companies: CompanyInfo[] = [];
-
-  try {
-    const response = await fetch(
-      `https://api.opencorporates.com/v0.4/companies/search?q=${encodeURIComponent(query)}&per_page=10`,
-      { signal: AbortSignal.timeout(15000) }
-    );
-    if (response.ok) {
-      const data = await response.json();
-      for (const result of (data.results?.companies || [])) {
-        const c = result.company;
-        companies.push({
-          name: c.name,
-          jurisdiction: c.jurisdiction_code,
-          registrationNumber: c.company_number,
-          status: c.current_status,
-          incorporationDate: c.incorporation_date,
-          companyType: c.company_type,
-          address: c.registered_address_in_full,
-          officers: [],
-          industry: c.industry_codes?.map((ic: any) => ic.industry_code?.description).filter(Boolean).join(", "),
-          source: "opencorporates",
-        });
-      }
-    }
-  } catch {}
-
-  return companies;
-}
-
-// ── SEC EDGAR (US public companies — free) ──────────────
+// ── SEC EDGAR Full-Text Search (free, no key) ───────────
 
 export async function searchSecEdgar(query: string): Promise<CompanyInfo[]> {
   const companies: CompanyInfo[] = [];
 
   try {
+    // EDGAR full-text search API (efts)
     const response = await fetch(
-      `https://efts.sec.gov/LATEST/search-index?q=${encodeURIComponent(query)}&dateRange=custom&startdt=2020-01-01&enddt=2030-01-01&forms=10-K`,
+      `https://efts.sec.gov/LATEST/search-index?q=${encodeURIComponent(query)}&forms=10-K&dateRange=custom&startdt=2020-01-01&enddt=2030-01-01`,
       {
         signal: AbortSignal.timeout(15000),
         headers: { "User-Agent": "Panopticon OSINT research@example.com" },
@@ -81,8 +49,8 @@ export async function searchSecEdgar(query: string): Promise<CompanyInfo[]> {
       const seen = new Set<string>();
       for (const hit of (data.hits?.hits || []).slice(0, 10)) {
         const name = hit._source?.entity_name || hit._source?.display_names?.[0];
-        if (!name || seen.has(name)) continue;
-        seen.add(name);
+        if (!name || seen.has(name.toLowerCase())) continue;
+        seen.add(name.toLowerCase());
         companies.push({
           name,
           jurisdiction: "US",
@@ -96,21 +64,21 @@ export async function searchSecEdgar(query: string): Promise<CompanyInfo[]> {
     }
   } catch {}
 
-  // Also try the full-text search
+  // Fallback: EDGAR company search API
   if (companies.length === 0) {
     try {
       const response = await fetch(
-        `https://efts.sec.gov/LATEST/search-index?q=${encodeURIComponent(query)}&forms=10-K,10-Q,8-K`,
+        `https://www.sec.gov/cgi-bin/browse-edgar?company=${encodeURIComponent(query)}&CIK=&type=10-K&dateb=&owner=include&count=10&search_text=&action=getcompany`,
         {
-          signal: AbortSignal.timeout(10000),
+          signal: AbortSignal.timeout(15000),
           headers: { "User-Agent": "Panopticon OSINT research@example.com" },
         }
       );
       if (response.ok) {
-        const data = await response.json();
-        for (const hit of (data.hits?.hits || []).slice(0, 5)) {
-          const name = hit._source?.entity_name;
-          if (name) companies.push({ name, jurisdiction: "US", officers: [], source: "sec-edgar" });
+        const html = await response.text();
+        const matches = html.matchAll(/<td class="company-name">\s*<a[^>]*>([^<]+)<\/a>/gi);
+        for (const m of matches) {
+          companies.push({ name: m[1].trim(), jurisdiction: "US", officers: [], source: "sec-edgar" });
         }
       }
     } catch {}
@@ -119,7 +87,7 @@ export async function searchSecEdgar(query: string): Promise<CompanyInfo[]> {
   return companies;
 }
 
-// ── UK Companies House (free API, no key for basic search) ─
+// ── UK Companies House (scrape search page) ─────────────
 
 export async function searchUkCompanies(query: string): Promise<CompanyInfo[]> {
   const companies: CompanyInfo[] = [];
@@ -129,20 +97,53 @@ export async function searchUkCompanies(query: string): Promise<CompanyInfo[]> {
       `https://find-and-update.company-information.service.gov.uk/search?q=${encodeURIComponent(query)}`,
       {
         signal: AbortSignal.timeout(10000),
-        headers: { "User-Agent": "Mozilla/5.0" },
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; Panopticon/1.0)" },
       }
     );
     if (response.ok) {
       const html = await response.text();
-      // Parse search results from HTML
-      const results = html.matchAll(/<a class="govuk-link"[^>]*href="\/company\/(\d+)"[^>]*>([^<]+)<\/a>/gi);
+      // Match company links and names
+      const results = html.matchAll(/href="\/company\/([^"]+)"[^>]*>\s*([^<]+)/gi);
       for (const match of results) {
+        const name = match[2].trim();
+        if (name.length > 2 && !companies.find(c => c.name === name)) {
+          companies.push({
+            name,
+            jurisdiction: "GB",
+            registrationNumber: match[1],
+            officers: [],
+            source: "companies-house",
+          });
+        }
+      }
+    }
+  } catch {}
+
+  return companies;
+}
+
+// ── Wikipedia Company Info (free, always available) ──────
+
+export async function searchWikipedia(query: string): Promise<CompanyInfo[]> {
+  const companies: CompanyInfo[] = [];
+
+  try {
+    // Wikipedia API — search
+    const response = await fetch(
+      `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query + " company")}&format=json&srlimit=5`,
+      { signal: AbortSignal.timeout(10000) }
+    );
+    if (response.ok) {
+      const data = await response.json();
+      for (const result of (data.query?.search || [])) {
+        const snippet = result.snippet?.replace(/<[^>]+>/g, "") || "";
         companies.push({
-          name: match[2].trim(),
-          jurisdiction: "GB",
-          registrationNumber: match[1],
+          name: result.title,
+          jurisdiction: undefined,
+          status: "Wikipedia Article",
+          industry: snippet.slice(0, 150),
           officers: [],
-          source: "companies-house",
+          source: "wikipedia",
         });
       }
     }
@@ -151,11 +152,35 @@ export async function searchUkCompanies(query: string): Promise<CompanyInfo[]> {
   return companies;
 }
 
+// ── DuckDuckGo Instant Answer (free) ────────────────────
+
+export async function searchDdgCompany(query: string): Promise<CompanyInfo | null> {
+  try {
+    const response = await fetch(
+      `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1`,
+      { signal: AbortSignal.timeout(10000) }
+    );
+    if (response.ok) {
+      const data = await response.json();
+      if (data.AbstractText && data.AbstractText.length > 30) {
+        return {
+          name: data.Heading || query,
+          industry: data.AbstractText.slice(0, 300),
+          status: data.AbstractSource || "DuckDuckGo",
+          officers: [],
+          source: "duckduckgo",
+        };
+      }
+    }
+  } catch {}
+  return null;
+}
+
 // ── Domain → Company Association ────────────────────────
 
 export async function domainToCompany(domain: string): Promise<CompanySearchResult> {
   const clean = domain.replace(/[^a-zA-Z0-9.\-]/g, "");
-  const baseName = clean.split(".")[0]; // e.g. "github" from "github.com"
+  const baseName = clean.split(".")[0];
 
   // Get WHOIS org for better search
   let orgName = baseName;
@@ -165,19 +190,21 @@ export async function domainToCompany(domain: string): Promise<CompanySearchResu
     if (whois.registrantOrg) orgName = whois.registrantOrg;
   } catch {}
 
-  // Search across corporate databases
-  const [oc, sec, uk] = await Promise.all([
-    searchOpenCorporates(orgName),
+  // Search across databases in parallel
+  const [sec, uk, wiki, ddg] = await Promise.all([
     searchSecEdgar(orgName),
     searchUkCompanies(orgName),
+    searchWikipedia(orgName),
+    searchDdgCompany(orgName),
   ]);
 
-  const allCompanies = [...oc, ...sec, ...uk];
+  const allCompanies = [...sec, ...uk, ...wiki];
+  if (ddg) allCompanies.unshift(ddg);
 
   return {
     query: orgName,
     companies: allCompanies,
-    stats: { total: allCompanies.length, sourcesQueried: 3 },
+    stats: { total: allCompanies.length, sourcesQueried: 4 },
     timestamp: new Date().toISOString(),
   };
 }

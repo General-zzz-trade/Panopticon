@@ -390,10 +390,11 @@ async function runAllBenchmarks(): Promise<BenchmarkReport> {
   // ── Company Intel ───────────────────────────────────
   console.log("▸ Company Intel");
 
-  results.push(await runTest("company", "OpenCorporates search", async () => {
-    const { searchOpenCorporates } = await import("./company-intel.js");
-    return searchOpenCorporates("Google");
-  }, r => ({ ok: r.length > 0, size: r.length, detail: `${r.length} companies found` }), 20000));
+  results.push(await runTest("company", "Company search (Wikipedia + DDG)", async () => {
+    const { searchWikipedia, searchDdgCompany } = await import("./company-intel.js");
+    const [wiki, ddg] = await Promise.all([searchWikipedia("Google"), searchDdgCompany("Google")]);
+    return { wiki, ddg };
+  }, r => ({ ok: r.wiki.length > 0 || !!r.ddg, size: r.wiki.length + (r.ddg ? 1 : 0), detail: `wiki: ${r.wiki.length} | ddg: ${r.ddg ? "yes" : "no"}` }), 20000));
 
   // ── Geospatial ──────────────────────────────────────
   console.log("▸ Geospatial");
