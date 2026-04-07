@@ -2,7 +2,7 @@
 
 **AI 驱动的开源情报平台 — 无需 API Key**
 
-自动化域名侦查、网络扫描、身份枚举、Web 情报收集、威胁评估。33 个 OSINT 模块，65 个 API 端点，19 个 CLI 命令，暗黑主题 React UI。
+自动化域名侦查、网络扫描、身份枚举、Web 情报收集、威胁评估。56 个 OSINT 模块，115 个 API 端点，19 个 CLI 命令，暗黑主题 React UI。
 
 [English](README.md) · [部署指南](DEPLOY.md)
 

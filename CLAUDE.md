@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-Panopticon is an AI-powered open-source intelligence (OSINT) platform with 33 reconnaissance modules, 65 API endpoints, and a dark-themed React UI. It conducts automated domain intelligence, network scanning, identity enumeration, web technology detection, threat assessment, and metadata extraction — all without external API keys. It uses system commands (`whois`, `dig`, `openssl`), TCP connect scanning, and free public data sources (crt.sh, ip-api.com, archive.org, abuse.ch, HaveIBeenPwned, NVD).
+Panopticon is an AI-powered open-source intelligence (OSINT) platform with 56 reconnaissance modules, 115 API endpoints, and a dark-themed React UI. It conducts automated domain intelligence, network scanning, identity enumeration, web technology detection, threat assessment, and metadata extraction — all without external API keys. It uses system commands (`whois`, `dig`, `openssl`), TCP connect scanning, and free public data sources (crt.sh, ip-api.com, archive.org, abuse.ch, HaveIBeenPwned, NVD).
 
 ## Commands
 
@@ -37,7 +37,7 @@ node --import tsx --test src/path/to/file.test.ts
 
 ## Architecture
 
-### OSINT Modules (`src/osint/` — 33 files)
+### OSINT Modules (`src/osint/` — 56 files)
 
 The core OSINT engine is modular — each file is a self-contained reconnaissance capability:
 
@@ -73,6 +73,28 @@ The core OSINT engine is modular — each file is a self-contained reconnaissanc
 - `darkweb.ts` — .onion presence via Ahmia.fi, paste site search
 - `metadata-extract.ts` — EXIF GPS, PDF metadata, HTTP fingerprint
 
+**Physical World OSINT:**
+- `flight-tracker.ts` — OpenSky Network real-time flight tracking, airport arrivals/departures
+- `vessel-tracker.ts` — AIS maritime vessel tracking, port activity monitoring
+- `blockchain.ts` — Bitcoin/Ethereum address analysis, transaction tracing, wallet risk
+- `company-intel.ts` — SEC EDGAR, UK Companies House, Wikipedia corporate search
+- `geospatial.ts` — Geocoding (OSM), weather (Open-Meteo), earthquakes (USGS), fire hotspots (NASA FIRMS)
+- `sanctions.ts` — OFAC/EU sanctions list checking
+- `public-records.ts` — Academic papers (OpenAlex), patents (Google Patents)
+
+**Deep Analysis:**
+- `pivot-engine.ts` — Automatic chain discovery, 12 pivot rules, multi-hop entity expansion
+- `infra-overlap.ts` — Compare targets for shared infrastructure (IP/NS/MX/registrar/ASN)
+- `temporal-analysis.ts` — Domain age, certificate timeline, anomaly detection
+- `protocol-analysis.ts` — SSH fingerprint matching, SPF/DKIM/DMARC, SMTP banner intel
+- `attribution.ts` — Multi-source evidence correlation for entity attribution
+- `deep-extract.ts` — Full-text NLP entity extraction, cross-module correlation
+- `deep-profile.ts` — Historical profile, person profiling, intelligent next-step generation
+- `llm-analyst.ts` — LLM-powered semantic analysis, investigation planning, narrative reports
+- `passive-monitor.ts` — CT Log monitoring, BGP change detection, DNS change alerts
+- `stix-export.ts` — STIX 2.1 bundle + MISP event format export
+- `auto-investigate.ts` — End-to-end pipeline with multi-dimensional risk scoring
+
 **Infrastructure:**
 - `data-correlator.ts` — Entity graph (16 types, 16 relation types), BFS traversal, clustering
 - `report-generator.ts` — Markdown report, risk assessment, recommendations
@@ -101,7 +123,7 @@ Plan → Execute → Verify → Decide → (Hypothesize → Recover)
 
 ### API (`src/api/`)
 
-Fastify server with 65 endpoints at `/api/v1/osint/*`. Also serves the React frontend as SPA with fallback routing.
+Fastify server with 115 endpoints at `/api/v1/osint/*`. Also serves the React frontend as SPA with fallback routing.
 
 ### Frontend (`webapp/`)
 
@@ -116,14 +138,14 @@ React 19 + Vite 6 + Tailwind CSS. Dark OSINT theme (`#0a0e17` bg, `#00ff88` acce
 ## Module Layout
 
 ```
-src/osint/          33 OSINT reconnaissance modules
+src/osint/          56 OSINT reconnaissance modules
 src/core/           Runtime loop, executor, policy, retry
 src/planner/        Template/regex/knowledge/LLM planners
 src/cognition/      Hypothesis engine, belief updates, decisions
 src/verifier/       Action/state/goal verification
 src/llm/            LLM provider abstraction (Anthropic/OpenAI/Ollama)
 src/handlers/       Task execution (browser, HTTP, shell, OSINT, etc.)
-src/api/            Fastify server, 65+ routes, auth
+src/api/            Fastify server, 115+ routes, auth
 src/db/             SQLite client, schema, repository
 src/knowledge/      Procedural memory, failure patterns
 src/memory/         Episode store, semantic search

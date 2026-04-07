@@ -2,7 +2,7 @@
 
 **AI-powered open-source intelligence platform — no API keys required.**
 
-Automated reconnaissance across domains, networks, identities, and web infrastructure. 33 OSINT modules, 65 API endpoints, 19 CLI commands, dark-themed React UI.
+Automated reconnaissance across domains, networks, identities, and web infrastructure. 56 OSINT modules, 115 API endpoints, 19 CLI commands, dark-themed React UI.
 
 [中文文档](README.zh-CN.md) · [Deployment Guide](DEPLOY.md)
 

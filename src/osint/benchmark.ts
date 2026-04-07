@@ -451,10 +451,101 @@ async function runAllBenchmarks(): Promise<BenchmarkReport> {
     return checkTakeover("www.google.com");
   }, r => ({ ok: typeof r.vulnerable === "boolean", size: 1, detail: `vulnerable: ${r.vulnerable} | cname: ${r.cname || "none"}` })));
 
-  // ── WAF Detect (already tested above but add CDN detail) ──
-  // ── Cloud Enum (skip — too slow for benchmark) ──
-  // ── Crawler (skip — needs real site crawl) ──
-  // ── GitHub Recon (skip — rate limited) ──
+  // ══════════════════════════════════════════════════════
+  //  DEEP ANALYSIS + INTELLIGENCE-GRADE
+  // ══════════════════════════════════════════════════════
+
+  // ── Deep Extract ────────────────────────────────────
+  console.log("▸ Deep Extract");
+
+  results.push(await runTest("deep-extract", "Entity extraction from text", async () => {
+    const { deepAnalyze } = await import("./deep-extract.js");
+    return deepAnalyze("CEO John Smith of Acme Corp announced a $5 billion deal in San Francisco. Contact: john@acme.com");
+  }, r => ({ ok: r.entities.length > 3, size: r.entities.length, detail: `${r.entities.length} entities: ${r.summary.byType ? Object.entries(r.summary.byType).map(([t,c]) => `${t}:${c}`).join(", ") : ""}` })));
+
+  // ── Deep Profile ────────────────────────────────────
+  console.log("▸ Deep Profile");
+
+  results.push(await runTest("deep-profile", "Next-step generation", async () => {
+    const { generateNextSteps } = await import("./deep-profile.js");
+    return generateNextSteps({
+      domain: { domain: "test.com", subdomains: Array(25).fill({}), whois: { registrantOrg: "Test Inc" } },
+      network: { openPorts: [{ port: 3306, state: "open", service: "MySQL" }] },
+    });
+  }, r => ({ ok: r.length > 0, size: r.length, detail: `${r.length} steps: ${r.slice(0,3).map((s: any) => s.priority).join(",")}` })));
+
+  // ── LLM Analyst (fallback mode) ─────────────────────
+  console.log("▸ LLM Analyst");
+
+  results.push(await runTest("llm-analyst", "Investigation planner (rule-based)", async () => {
+    const { llmPlanInvestigation } = await import("./llm-analyst.js");
+    return llmPlanInvestigation("github.com");
+  }, r => ({ ok: r.phases.length > 0, size: r.phases.length, detail: `${r.targetType} | ${r.phases.length} phases | ${r.estimatedDuration}` })));
+
+  results.push(await runTest("llm-analyst", "Entity extraction (fallback)", async () => {
+    const { llmExtractEntities } = await import("./llm-analyst.js");
+    return llmExtractEntities("Microsoft Corp acquired Activision for $69 billion in 2023");
+  }, r => ({ ok: r.entities.length > 0, size: r.entities.length, detail: `${r.entities.length} entities | usedLlm: ${r.usedLlm}` })));
+
+  // ── STIX Export ─────────────────────────────────────
+  console.log("▸ STIX Export");
+
+  results.push(await runTest("stix", "STIX 2.1 bundle generation", async () => {
+    const { investigationToStix } = await import("./stix-export.js");
+    return investigationToStix("test.com", {
+      domain: { dns: [{ type: "A", value: "1.2.3.4" }], subdomains: [{ subdomain: "www.test.com" }] },
+      threat: { threats: [{ source: "test", type: "malware", description: "test", confidence: 0.9 }], blacklists: [] },
+    });
+  }, r => ({ ok: r.type === "bundle" && r.objects.length > 0, size: r.objects.length, detail: `${r.objects.length} STIX objects | spec: ${r.spec_version}` })));
+
+  results.push(await runTest("stix", "MISP event generation", async () => {
+    const { investigationToMisp } = await import("./stix-export.js");
+    return investigationToMisp("test.com", {
+      domain: { dns: [{ type: "A", value: "1.2.3.4" }] },
+    });
+  }, r => ({ ok: r.Event?.Attribute?.length > 0, size: r.Event?.Attribute?.length, detail: `${r.Event?.Attribute?.length} attributes | threat: ${r.Event?.threat_level_id}` })));
+
+  // ── Passive Monitor ─────────────────────────────────
+  console.log("▸ Passive Monitor");
+
+  results.push(await runTest("passive", "DNS baseline capture", async () => {
+    const { captureDnsBaseline } = await import("./passive-monitor.js");
+    return captureDnsBaseline("example.com");
+  }, r => ({ ok: Object.keys(r.records).length > 0, size: Object.keys(r.records).length, detail: `${Object.keys(r.records).length} record types: ${Object.keys(r.records).join(",")}` })));
+
+  // ── Metadata Extract ────────────────────────────────
+  console.log("▸ Metadata");
+
+  results.push(await runTest("metadata", "HTTP fingerprint", async () => {
+    const { httpFingerprint } = await import("./metadata-extract.js");
+    return httpFingerprint("https://github.com");
+  }, r => ({ ok: Object.keys(r.allHeaders).length > 0, size: Object.keys(r.allHeaders).length, detail: `${Object.keys(r.allHeaders).length} headers | server: ${r.serverSoftware || "none"}` })));
+
+  // ── Utils ───────────────────────────────────────────
+  console.log("▸ Utils");
+
+  results.push(await runTest("utils", "Cache + sanitize + port parse", async () => {
+    const { cacheSet, cacheGet, parsePortRange, cacheClear } = await import("./utils.js");
+    cacheSet("bench-test", { v: 1 }); const cached = cacheGet("bench-test"); cacheClear();
+    const ports = parsePortRange("80,443,8080-8082");
+    return { cached, ports };
+  }, r => ({ ok: r.cached?.v === 1 && r.ports.length === 5, size: r.ports.length, detail: `cache: ${r.cached?.v === 1 ? "ok" : "fail"} | ports: ${r.ports.join(",")}` })));
+
+  // ── Darkweb ─────────────────────────────────────────
+  console.log("▸ Darkweb");
+
+  results.push(await runTest("darkweb", "Onion index search", async () => {
+    const { searchDarkWebIndexes } = await import("./darkweb.js");
+    return searchDarkWebIndexes("example");
+  }, r => ({ ok: true, size: r.mentions.length + r.onionUrls.length, detail: `${r.mentions.length} mentions | ${r.onionUrls.length} onion URLs` }), 20000));
+
+  // ── Vessel Tracker ──────────────────────────────────
+  console.log("▸ Vessel Tracker");
+
+  results.push(await runTest("vessels", "AIS vessel search", async () => {
+    const { searchVessel } = await import("./vessel-tracker.js");
+    return searchVessel("MAERSK");
+  }, r => ({ ok: true, size: r.vessels.length, detail: `${r.vessels.length} vessels found` }), 15000));
 
   console.log("▸ Done\n");
 

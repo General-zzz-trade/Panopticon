@@ -1,6 +1,6 @@
 version: "3.8"
 services:
-  agent:
+  panopticon:
     build:
       context: .
       dockerfile: Dockerfile
@@ -8,25 +8,25 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
+      - AGENT_API_AUTH=false
+      # Optional: LLM for AI-enhanced analysis
       - LLM_PLANNER_PROVIDER=${LLM_PLANNER_PROVIDER:-}
       - LLM_PLANNER_API_KEY=${LLM_PLANNER_API_KEY:-}
       - LLM_PLANNER_MODEL=${LLM_PLANNER_MODEL:-}
       - LLM_PLANNER_BASE_URL=${LLM_PLANNER_BASE_URL:-}
-      - LLM_REPLANNER_PROVIDER=${LLM_REPLANNER_PROVIDER:-}
-      - LLM_REPLANNER_API_KEY=${LLM_REPLANNER_API_KEY:-}
-      - LLM_REPLANNER_MODEL=${LLM_REPLANNER_MODEL:-}
-      - LLM_VERIFIER_PROVIDER=${LLM_VERIFIER_PROVIDER:-}
-      - LLM_VERIFIER_API_KEY=${LLM_VERIFIER_API_KEY:-}
-      - LLM_VERIFIER_MODEL=${LLM_VERIFIER_MODEL:-}
+      # Optional: GitHub token for higher rate limits
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
     volumes:
-      - agent-data:/app/artifacts
+      - panopticon-data:/app/artifacts
+      - panopticon-db:/app/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/v1/runs"]
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s
       timeout: 5s
-      start_period: 10s
+      start_period: 15s
       retries: 3
 
 volumes:
-  agent-data:
+  panopticon-data:
+  panopticon-db:

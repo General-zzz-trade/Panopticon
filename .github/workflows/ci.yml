@@ -7,21 +7,30 @@ on:
     branches: [main]
 
 jobs:
-  unit-tests:
-    name: Unit & Integration Tests
+  typecheck:
+    name: TypeScript Compile Check
     runs-on: ubuntu-latest
     timeout-minutes: 5
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "npm"
-
       - run: npm ci
+      - run: npx tsc --noEmit
 
+  unit-tests:
+    name: Unit & Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
       - name: Unit & integration tests
         run: |
           node --import tsx --test \
@@ -46,21 +55,33 @@ jobs:
             src/handlers/*.test.ts \
             src/sandbox/*.test.ts
 
-  api-tests:
-    name: API Tests
+  osint-tests:
+    name: OSINT Module Tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "npm"
-
       - run: npm ci
+      - name: Install OSINT system dependencies
+        run: sudo apt-get update && sudo apt-get install -y whois dnsutils openssl
+      - name: OSINT unit tests
+        run: node --import tsx --test src/osint/osint.test.ts
 
+  api-tests:
+    name: API Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
       - name: API tests
         run: node --import tsx --test src/api/server.test.ts src/api/sanitize.test.ts src/api/security.test.ts
 
@@ -68,20 +89,15 @@ jobs:
     name: E2E Tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "npm"
-
       - run: npm ci
-
       - name: Install Playwright browsers
         run: npx playwright install chromium --with-deps
-
       - name: E2E tests
         run: |
           mkdir -p artifacts
