@@ -38,73 +38,128 @@ function calculateMultiDimensionScore(findings: Record<string, any>): MultiDimen
   let threat = 0, exposure = 0, vulnerability = 0, reputation = 0, maturity = 100;
   const breakdown: string[] = [];
 
+  // Normalize field names: auto-investigate uses module_name, scoring expects short names
+  const f = {
+    domain: findings.domain || findings.domain_recon,
+    network: findings.network || findings.network_recon || findings.nmap_scan,
+    threat: findings.threat || findings.threat_intel,
+    web: findings.web || findings.web_intel,
+    breach: findings.breach || findings.breach_check,
+    ssl: findings.ssl || findings.ssl_analysis,
+    cve: findings.cve || findings.cve_matcher,
+    protocol: findings.protocol || findings.email_security,
+    url_safety: findings.url_safety,
+    dir_scan: findings.dir_scan,
+    waf: findings.waf || findings.waf_detect,
+    temporal: findings.temporal,
+  };
+
   // Threat dimension
-  if (findings.threat) {
-    threat += findings.threat.threats?.length * 15 || 0;
-    threat += (findings.threat.blacklists?.filter((b: any) => b.listed).length || 0) * 10;
-    threat += findings.threat.suspiciousPatterns?.length * 5 || 0;
-    if (findings.threat.malicious) { threat += 30; breakdown.push("⚠ Flagged as malicious by threat feeds"); }
+  if (f.threat) {
+    threat += f.threat.threats?.length * 15 || 0;
+    threat += (f.threat.blacklists?.filter((b: any) => b.listed).length || 0) * 10;
+    threat += f.threat.suspiciousPatterns?.length * 5 || 0;
+    if (f.threat.malicious) { threat += 30; breakdown.push("⚠ Flagged as malicious by threat feeds"); }
+    if (f.threat.riskScore > 50) { threat += 20; breakdown.push(`Threat risk score: ${f.threat.riskScore}/100`); }
+  }
+
+  // URL safety
+  if (f.url_safety && !f.url_safety.safe) {
+    threat += 25;
+    breakdown.push(`URL flagged unsafe by ${f.url_safety.engines?.filter((e: any) => !e.safe).length} engines`);
   }
 
   // Exposure dimension
-  if (findings.domain) {
-    const subCount = findings.domain.subdomains?.length || 0;
+  if (f.domain) {
+    const subCount = f.domain.subdomains?.length || 0;
     if (subCount > 50) { exposure += 20; breakdown.push(`Large attack surface: ${subCount} subdomains`); }
     else if (subCount > 20) { exposure += 10; }
-
-    if (findings.domain.zoneTransfer?.success) { exposure += 30; breakdown.push("DNS zone transfer enabled (critical)"); }
+    if (f.domain.zoneTransfer?.success) { exposure += 30; breakdown.push("DNS zone transfer enabled (critical)"); }
   }
 
-  if (findings.network) {
-    const openPorts = (findings.network.openPorts || []).filter((p: any) => p.state === "open");
+  if (f.network) {
+    // Handle both nmap format (ports[].state) and network_recon format (openPorts[].state)
+    const allPorts = f.network.ports || f.network.openPorts || [];
+    const openPorts = allPorts.filter((p: any) => p.state === "open");
     const riskyPorts = openPorts.filter((p: any) => [21, 23, 135, 139, 445, 3306, 5432, 6379, 27017].includes(p.port));
     exposure += riskyPorts.length * 10;
     if (riskyPorts.length > 0) breakdown.push(`Risky open ports: ${riskyPorts.map((p: any) => `${p.port}/${p.service}`).join(", ")}`);
 
-    // Security headers → maturity
-    if (findings.network.httpHeaders?.securityHeaders) {
-      const sec = findings.network.httpHeaders.securityHeaders;
+    if (f.network.httpHeaders?.securityHeaders) {
+      const sec = f.network.httpHeaders.securityHeaders;
       const missing = Object.entries(sec).filter(([, v]) => !v).length;
       maturity -= missing * 8;
       if (missing > 3) breakdown.push(`Missing ${missing} security headers`);
     }
   }
 
+  // Dir scan findings
+  if (f.dir_scan) {
+    const critical = f.dir_scan.found?.filter((d: any) => d.severity === "critical").length || 0;
+    const high = f.dir_scan.found?.filter((d: any) => d.severity === "high").length || 0;
+    if (critical > 0) { vulnerability += critical * 20; breakdown.push(`${critical} critical paths exposed (.env, .git, etc.)`); }
+    if (high > 0) { vulnerability += high * 10; breakdown.push(`${high} high-risk paths found`); }
+  }
+
   // Vulnerability dimension
-  if (findings.cve) {
-    const critical = findings.cve.matches?.filter((m: any) => m.severity === "CRITICAL").length || 0;
-    const high = findings.cve.matches?.filter((m: any) => m.severity === "HIGH").length || 0;
+  if (f.cve) {
+    const critical = f.cve.matches?.filter((m: any) => m.severity === "CRITICAL").length || 0;
+    const high = f.cve.matches?.filter((m: any) => m.severity === "HIGH").length || 0;
     vulnerability += critical * 25 + high * 15;
     if (critical > 0) breakdown.push(`${critical} CRITICAL CVEs`);
   }
 
-  if (findings.web?.techStack?.cms === "WordPress") {
+  if (f.web?.techStack?.cms === "WordPress") {
     vulnerability += 10;
     breakdown.push("WordPress CMS (common target)");
   }
 
   // Reputation dimension
-  if (findings.breach?.breached) {
+  if (f.breach?.breached) {
     reputation += 20;
     breakdown.push("Appears in breach databases");
   }
 
-  // Maturity: SSL/TLS
-  if (findings.ssl) {
-    if (findings.ssl.issues?.length > 0) {
-      maturity -= findings.ssl.issues.length * 5;
-      breakdown.push(`SSL issues: ${findings.ssl.issues.length}`);
+  // Email security → maturity
+  if (f.protocol) {
+    if (f.protocol.securityScore !== undefined) {
+      if (f.protocol.securityScore >= 80) maturity += 10;
+      else if (f.protocol.securityScore < 40) {
+        maturity -= 20;
+        breakdown.push(`Weak email security: ${f.protocol.securityScore}/100`);
+      }
+      if (!f.protocol.spf?.exists) { maturity -= 10; }
+      if (!f.protocol.dmarc?.exists) { maturity -= 10; breakdown.push("No DMARC policy"); }
     }
-    if (findings.ssl.protocol?.includes("TLSv1.3")) maturity += 5;
   }
 
-  // DMARC/SPF
-  if (findings.protocol) {
-    if (findings.protocol.securityScore >= 80) maturity += 10;
-    else if (findings.protocol.securityScore < 40) {
-      maturity -= 15;
-      breakdown.push("Weak email security (SPF/DKIM/DMARC)");
+  // SSL/TLS
+  if (f.ssl) {
+    if (f.ssl.issues?.length > 0) {
+      maturity -= f.ssl.issues.length * 5;
+      breakdown.push(`SSL issues: ${f.ssl.issues.length}`);
     }
+    if (f.ssl.protocol?.includes("TLSv1.3")) maturity += 5;
+  }
+
+  // Temporal anomalies
+  if (f.temporal?.anomalies?.length > 0) {
+    const criticalAnomalies = f.temporal.anomalies.filter((a: any) => a.severity === "critical" || a.severity === "high");
+    if (criticalAnomalies.length > 0) {
+      threat += criticalAnomalies.length * 10;
+      breakdown.push(`${criticalAnomalies.length} temporal anomalies detected`);
+    }
+  }
+
+  // Domain age (from temporal)
+  if (f.temporal?.domainAge?.isNew) {
+    threat += 20;
+    breakdown.push(`New domain: ${f.temporal.domainAge.ageInDays} days old`);
+  }
+
+  // No WAF detected on a public website
+  if (f.waf && f.waf.waf?.length === 0 && f.domain) {
+    maturity -= 5;
   }
 
   // Normalize
@@ -169,11 +224,17 @@ export async function autoInvestigate(
     correlations = correlateFindings(findings);
   } catch {}
 
-  // Phase 5: Next steps
+  // Phase 5: Next steps (normalize field names for compatibility)
   let nextSteps: any[] = [];
   try {
     const { generateNextSteps } = await import("./deep-profile.js");
-    nextSteps = generateNextSteps(findings);
+    const normalized: Record<string, any> = { ...findings };
+    if (findings.domain_recon) normalized.domain = findings.domain_recon;
+    if (findings.nmap_scan) normalized.network = { ...findings.nmap_scan, openPorts: findings.nmap_scan?.ports };
+    if (findings.threat_intel) normalized.threat = findings.threat_intel;
+    if (findings.web_intel) normalized.web = findings.web_intel;
+    if (findings.email_security) normalized.protocol = findings.email_security;
+    nextSteps = generateNextSteps(normalized);
   } catch {}
 
   // Phase 6: Report

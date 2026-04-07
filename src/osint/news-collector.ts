@@ -398,8 +398,8 @@ export async function collectNews(
         a.title.toLowerCase().includes(queryLower) ||
         (a.summary || "").toLowerCase().includes(queryLower)
       );
-      // If no matches and this is a keyword search, take top articles anyway
-      const toAdd = matching.length > 0 ? matching.slice(0, maxPerSource) : feedArticles.slice(0, 3);
+      // Only add matching articles — don't add unrelated content
+      const toAdd = matching.slice(0, maxPerSource);
       allArticles.push(...toAdd);
       sourceCounts[batch[j].name] = toAdd.length;
       sourcesQueried++;
