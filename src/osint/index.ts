@@ -166,6 +166,9 @@ export type { HarvestResult, HarvestedEmail } from "./email-harvester.js";
 export { getPassiveDnsHistory } from "./passive-dns.js";
 
 export { getTwitterProfile, searchTwitter, twitterIntel } from "./twitter-intel.js";
+
+export { extractChineseEntities, discoverChineseRelations, analyzeChineseSentiment, buildChineseTimeline } from "./chinese-nlp.js";
+export type { ChineseEntity, PersonRelation, TimelineEvent as CnTimelineEvent } from "./chinese-nlp.js";
 export type { Tweet, TwitterProfileResult, TwitterSearchResult } from "./twitter-intel.js";
 export type { PassiveDnsResult, DnsHistoryEntry } from "./passive-dns.js";
 export type { AutoInvestigationResult, MultiDimensionScore } from "./auto-investigate.js";
