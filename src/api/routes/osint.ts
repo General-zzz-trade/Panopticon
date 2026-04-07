@@ -899,4 +899,48 @@ export default async function osintRoutes(app: FastifyInstance) {
     const { researchEntity } = await import("../../osint/public-records.js");
     return { success: true, data: await researchEntity(query) };
   });
+
+  // ══════════════════════════════════════════════════════
+  //  DEEP ANALYSIS
+  // ══════════════════════════════════════════════════════
+
+  // ── Deep Text Analysis ────────────────────────────────
+  app.post("/osint/deep/extract", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { text, source } = request.body as { text: string; source?: string };
+    if (!text) return reply.code(400).send({ error: "text is required" });
+    const { deepAnalyze } = await import("../../osint/deep-extract.js");
+    return { success: true, data: await deepAnalyze(text, source) };
+  });
+
+  // ── Cross-Module Correlation ──────────────────────────
+  app.post("/osint/deep/correlate", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { findings } = request.body as { findings: Record<string, any> };
+    if (!findings) return reply.code(400).send({ error: "findings object is required" });
+    const { correlateFindings } = await import("../../osint/deep-extract.js");
+    return { success: true, data: correlateFindings(findings) };
+  });
+
+  // ── Historical Profile ────────────────────────────────
+  app.post("/osint/deep/history", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { target } = request.body as { target: string };
+    if (!target) return reply.code(400).send({ error: "target domain is required" });
+    const { buildHistoricalProfile } = await import("../../osint/deep-profile.js");
+    return { success: true, data: await buildHistoricalProfile(target) };
+  });
+
+  // ── Person Profile ────────────────────────────────────
+  app.post("/osint/deep/person", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { query } = request.body as { query: string };
+    if (!query) return reply.code(400).send({ error: "query (name or email) is required" });
+    const { buildPersonProfile } = await import("../../osint/deep-profile.js");
+    return { success: true, data: await buildPersonProfile(query) };
+  });
+
+  // ── Next Steps Generator ──────────────────────────────
+  app.post("/osint/deep/nextsteps", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { findings } = request.body as { findings: Record<string, any> };
+    if (!findings) return reply.code(400).send({ error: "findings from previous investigation required" });
+    const { generateNextSteps } = await import("../../osint/deep-profile.js");
+    return { success: true, data: generateNextSteps(findings) };
+  });
 }

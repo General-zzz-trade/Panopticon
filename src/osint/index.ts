@@ -135,6 +135,13 @@ export { checkSanctions, checkOfac } from "./sanctions.js";
 export type { SanctionsResult, SanctionMatch } from "./sanctions.js";
 
 export { searchAcademicPapers, lookupAuthor, searchPatents, researchEntity } from "./public-records.js";
+
+// Deep analysis
+export { deepExtractEntities, discoverRelations, correlateFindings, deepAnalyze } from "./deep-extract.js";
+export type { DeepEntity, DeepRelation, DeepExtractionResult, CorrelationResult } from "./deep-extract.js";
+
+export { buildHistoricalProfile, buildPersonProfile, generateNextSteps } from "./deep-profile.js";
+export type { HistoricalProfile, PersonProfile, NextStep } from "./deep-profile.js";
 export type { AcademicResult, PatentResult } from "./public-records.js";
 export type { AttributionResult, Attribution } from "./attribution.js";
 export type { SentimentResult, OpinionAnalysis, ExtractedEntity } from "./sentiment.js";

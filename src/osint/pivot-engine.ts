@@ -155,6 +155,71 @@ const PIVOT_RULES: PivotRule[] = [
       return [];
     },
   },
+
+  // ── Deep Pivot Rules (Level 2+) ─────────────────────
+
+  // Domain → Certificate SANs → related domains
+  {
+    fromType: "domain",
+    toModule: "cert-san-pivot",
+    description: "Find related domains via certificate SANs",
+    extract: (entity, result) => {
+      return (result.sanNames || [])
+        .filter((san: string) => san !== entity.value && san.includes(".") && !san.startsWith("*"))
+        .map((san: string) => ({ type: "domain", value: san, metadata: { source: "certificate-san" } }));
+    },
+  },
+
+  // Domain → SPF includes → partner infrastructure
+  {
+    fromType: "domain",
+    toModule: "spf-include-pivot",
+    description: "Discover partner services via SPF includes",
+    extract: (entity, result) => {
+      return (result.includes || [])
+        .map((inc: string) => ({ type: "domain", value: inc, metadata: { relation: "spf-include" } }));
+    },
+  },
+
+  // Domain → tech stack → technology entities
+  {
+    fromType: "domain",
+    toModule: "tech-stack-pivot",
+    description: "Identify technology stack",
+    extract: (entity, result) => {
+      const techs: { type: string; value: string; metadata?: any }[] = [];
+      if (result.server) techs.push({ type: "technology", value: result.server });
+      for (const js of (result.javascript || [])) techs.push({ type: "technology", value: js });
+      if (result.cdn) techs.push({ type: "technology", value: result.cdn, metadata: { type: "cdn" } });
+      if (result.hosting) techs.push({ type: "hosting", value: result.hosting });
+      return techs;
+    },
+  },
+
+  // Username → social profile discovery
+  {
+    fromType: "username",
+    toModule: "username-enum",
+    description: "Enumerate username across platforms",
+    extract: (entity, result) => {
+      return (result || [])
+        .filter((p: any) => p.exists)
+        .map((p: any) => ({ type: "url", value: p.url, metadata: { platform: p.platform } }));
+    },
+  },
+
+  // Organization → search for company info
+  {
+    fromType: "organization",
+    toModule: "org-to-wiki",
+    description: "Lookup organization details",
+    extract: (entity, result) => {
+      return (result || []).map((c: any) => ({
+        type: "organization", value: c.name,
+        metadata: { jurisdiction: c.jurisdiction, source: c.source, industry: c.industry },
+      }));
+    },
+  },
 ];
 
 // ── Pivot Executor ──────────────────────────────────────
@@ -193,6 +258,33 @@ async function executePivot(entity: Entity, rule: PivotRule): Promise<{ type: st
     case "email-split":
     case "ns-to-provider":
       return rule.extract(entity, null);
+    case "cert-san-pivot": {
+      const { sslDeepAnalysis } = await import("./advanced-recon.js");
+      const ssl = await sslDeepAnalysis(val);
+      return rule.extract(entity, ssl);
+    }
+    case "spf-include-pivot": {
+      const { execFileNoThrow } = await import("../utils/execFileNoThrow.js");
+      const { stdout } = await execFileNoThrow("dig", ["+short", val, "TXT"], { timeoutMs: 5000 });
+      const spfLine = stdout.split("\n").find(l => l.includes("v=spf1")) || "";
+      const includes = (spfLine.match(/include:(\S+)/g) || []).map(m => m.replace("include:", ""));
+      return rule.extract(entity, { includes });
+    }
+    case "tech-stack-pivot": {
+      const { detectTechStack } = await import("./web-intel.js");
+      const url = val.startsWith("http") ? val : `https://${val}`;
+      const tech = await detectTechStack(url);
+      return rule.extract(entity, tech);
+    }
+    case "username-enum": {
+      const { enumerateUsername } = await import("./identity-recon.js");
+      const results = await enumerateUsername(val, { categories: ["dev"], concurrency: 3 });
+      return rule.extract(entity, results);
+    }
+    case "org-to-wiki": {
+      const { searchWikipedia } = await import("./company-intel.js");
+      return rule.extract(entity, await searchWikipedia(val));
+    }
     default:
       return [];
   }
