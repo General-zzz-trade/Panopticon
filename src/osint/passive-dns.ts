@@ -1,5 +1,8 @@
 /**
  * Passive DNS — historical DNS data from free sources
+ * 
+ * ⚠ EXPERIMENTAL: This module depends on external free-tier services that may
+ * be rate-limited, blocked, or unavailable. Results are not guaranteed.
  * Replaces SecurityTrails without API key
  *
  * Sources: Wayback Machine DNS snapshots, DNSDB community, RapidDNS

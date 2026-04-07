@@ -1,6 +1,10 @@
 /**
  * Dark Web Intelligence — check for .onion presence via public indexes
  * No Tor connection needed — queries public dark web search engines and indexes
+ *
+ * ⚠ EXPERIMENTAL: Results are limited. Public clearnet indexes of .onion sites
+ * are sparse and often outdated. For comprehensive dark web monitoring,
+ * a Tor connection and specialized crawlers are required.
  */
 
 export interface DarkWebResult {

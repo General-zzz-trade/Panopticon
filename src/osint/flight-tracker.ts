@@ -1,5 +1,8 @@
 /**
  * Flight Tracker — real-time aircraft tracking via OpenSky Network
+ * 
+ * ⚠ EXPERIMENTAL: This module depends on external free-tier services that may
+ * be rate-limited, blocked, or unavailable. Results are not guaranteed.
  * Free API, no key needed (rate limited: 100 req/day unauthenticated)
  */
 

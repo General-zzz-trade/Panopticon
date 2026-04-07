@@ -1,5 +1,8 @@
 /**
  * Vessel/Ship Tracker — AIS maritime intelligence
+ * 
+ * ⚠ EXPERIMENTAL: This module depends on external free-tier services that may
+ * be rate-limited, blocked, or unavailable. Results are not guaranteed.
  * Uses free public AIS data sources (no API key)
  */
 

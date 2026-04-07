@@ -1,5 +1,8 @@
 /**
  * Typosquatting / Domain Similarity Detection — generate and check domain variants
+ * 
+ * ⚠ EXPERIMENTAL: This module depends on external free-tier services that may
+ * be rate-limited, blocked, or unavailable. Results are not guaranteed.
  * Detects homograph attacks, bitsquatting, and common typos
  */
 
