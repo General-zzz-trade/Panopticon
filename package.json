@@ -10,6 +10,7 @@
     "dev": "node --import tsx src/cli.ts",
     "sample:app": "node --import tsx src/sample-app/server.ts",
     "osint": "node --import tsx src/osint/cli.ts",
+    "osint:benchmark": "node --import tsx src/osint/benchmark.ts",
     "benchmark": "node --import tsx src/benchmarks/runner.ts",
     "eval:ab": "node --max-old-space-size=8192 --import tsx src/benchmarks/ab-runner.ts ab",
     "eval:ablation": "node --max-old-space-size=8192 --import tsx src/benchmarks/ab-runner.ts full",
