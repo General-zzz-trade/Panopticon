@@ -169,6 +169,9 @@ export { getTwitterProfile, searchTwitter, twitterIntel } from "./twitter-intel.
 
 export { extractChineseEntities, discoverChineseRelations, analyzeChineseSentiment, buildChineseTimeline } from "./chinese-nlp.js";
 
+export { getYouTubeTranscript, searchYouTube, monitorOfficialBlogs, searchRedditDeep, getRedditThread, scrapeTelegramChannelDeep } from "./media-collector.js";
+export type { YouTubeVideo, BlogPost, BlogMonitorResult, RedditThread, TelegramChannelResult } from "./media-collector.js";
+
 export { generateIntelReport, formatIntelReportMarkdown } from "./intel-analysis.js";
 export type { IntelReport, KeyJudgment, HypothesisAnalysis, Indicator, IntelGap } from "./intel-analysis.js";
 export type { ChineseEntity, PersonRelation, TimelineEvent as CnTimelineEvent } from "./chinese-nlp.js";

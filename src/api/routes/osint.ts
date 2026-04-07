@@ -1085,4 +1085,53 @@ export default async function osintRoutes(app: FastifyInstance) {
     const { twitterIntel } = await import("../../osint/twitter-intel.js");
     return { success: true, data: await twitterIntel(body.target, { keywords: body.keywords }) };
   });
+
+  // ══════════════════════════════════════════════════════
+  //  DEEP MEDIA COLLECTION
+  // ══════════════════════════════════════════════════════
+
+  // ── YouTube ───────────────────────────────────────────
+  app.post("/osint/youtube/video", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { videoId } = request.body as { videoId: string };
+    if (!videoId) return reply.code(400).send({ error: "videoId is required" });
+    const { getYouTubeTranscript } = await import("../../osint/media-collector.js");
+    return { success: true, data: await getYouTubeTranscript(videoId) };
+  });
+
+  app.post("/osint/youtube/search", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { query } = request.body as { query: string };
+    if (!query) return reply.code(400).send({ error: "query is required" });
+    const { searchYouTube } = await import("../../osint/media-collector.js");
+    return { success: true, data: await searchYouTube(query) };
+  });
+
+  // ── Official Blogs ────────────────────────────────────
+  app.post("/osint/blogs", async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { filter?: string[] };
+    const { monitorOfficialBlogs } = await import("../../osint/media-collector.js");
+    return { success: true, data: await monitorOfficialBlogs(body.filter) };
+  });
+
+  // ── Reddit Deep ───────────────────────────────────────
+  app.post("/osint/reddit/search", async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { query: string; subreddit?: string; limit?: number };
+    if (!body.query) return reply.code(400).send({ error: "query is required" });
+    const { searchRedditDeep } = await import("../../osint/media-collector.js");
+    return { success: true, data: await searchRedditDeep(body.query, body) };
+  });
+
+  app.post("/osint/reddit/thread", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { url } = request.body as { url: string };
+    if (!url) return reply.code(400).send({ error: "Reddit URL is required" });
+    const { getRedditThread } = await import("../../osint/media-collector.js");
+    return { success: true, data: await getRedditThread(url) };
+  });
+
+  // ── Telegram ──────────────────────────────────────────
+  app.post("/osint/telegram/channel", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { channel } = request.body as { channel: string };
+    if (!channel) return reply.code(400).send({ error: "channel name is required" });
+    const { scrapeTelegramChannelDeep } = await import("../../osint/media-collector.js");
+    return { success: true, data: await scrapeTelegramChannelDeep(channel) };
+  });
 }
