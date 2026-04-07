@@ -164,6 +164,9 @@ export { harvestEmails } from "./email-harvester.js";
 export type { HarvestResult, HarvestedEmail } from "./email-harvester.js";
 
 export { getPassiveDnsHistory } from "./passive-dns.js";
+
+export { getTwitterProfile, searchTwitter, twitterIntel } from "./twitter-intel.js";
+export type { Tweet, TwitterProfileResult, TwitterSearchResult } from "./twitter-intel.js";
 export type { PassiveDnsResult, DnsHistoryEntry } from "./passive-dns.js";
 export type { AutoInvestigationResult, MultiDimensionScore } from "./auto-investigate.js";
 export type { HistoricalProfile, PersonProfile, NextStep } from "./deep-profile.js";

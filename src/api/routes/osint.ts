@@ -1057,4 +1057,32 @@ export default async function osintRoutes(app: FastifyInstance) {
     const { getPassiveDnsHistory } = await import("../../osint/passive-dns.js");
     return { success: true, data: await getPassiveDnsHistory(domain) };
   });
+
+  // ══════════════════════════════════════════════════════
+  //  TWITTER / X INTELLIGENCE
+  // ══════════════════════════════════════════════════════
+
+  // ── Twitter Profile ───────────────────────────────────
+  app.post("/osint/twitter/profile", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { handle } = request.body as { handle: string };
+    if (!handle) return reply.code(400).send({ error: "handle is required (e.g. @elonmusk)" });
+    const { getTwitterProfile } = await import("../../osint/twitter-intel.js");
+    return { success: true, data: await getTwitterProfile(handle) };
+  });
+
+  // ── Twitter Keyword Search + Sentiment ────────────────
+  app.post("/osint/twitter/search", async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { query: string; handles?: string[]; sentiment?: boolean };
+    if (!body.query) return reply.code(400).send({ error: "query is required" });
+    const { searchTwitter } = await import("../../osint/twitter-intel.js");
+    return { success: true, data: await searchTwitter(body.query, { handles: body.handles, sentiment: body.sentiment }) };
+  });
+
+  // ── Full Twitter OSINT (profile + keywords + sentiment) ─
+  app.post("/osint/twitter/intel", async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { target: string; keywords?: string[] };
+    if (!body.target) return reply.code(400).send({ error: "target (handle or keyword) is required" });
+    const { twitterIntel } = await import("../../osint/twitter-intel.js");
+    return { success: true, data: await twitterIntel(body.target, { keywords: body.keywords }) };
+  });
 }
