@@ -91,6 +91,16 @@ export type { DirBruteResult, CorsCheckResult, ParamDiscoveryResult } from "./di
 
 export { cacheGet, cacheSet, cacheClear, cacheStats, fetchRetry, safeExec, parsePortRange } from "./utils.js";
 
+export { collectNews, searchGoogleNews, getFullText, fetchGoogleCache, fetchWaybackVersion, extractOgMeta } from "./news-collector.js";
+export type { NewsCollectorResult } from "./news-collector.js";
+export type { NewsArticle as CollectedArticle } from "./news-collector.js";
+
+export { collectSocialMedia, searchReddit, searchHackerNews, scrapeTelegramChannel, searchGithubDiscussions, searchStackOverflow } from "./social-media.js";
+export type { SocialMediaResult, SocialPost } from "./social-media.js";
+
+export { analyzeSentiment, extractEntities, analyzeKeywords, analyzeOpinion } from "./sentiment.js";
+export type { SentimentResult, OpinionAnalysis, ExtractedEntity } from "./sentiment.js";
+
 export { searchDarkWebIndexes } from "./darkweb.js";
 export type { DarkWebResult } from "./darkweb.js";
 

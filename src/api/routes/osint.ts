@@ -610,4 +610,113 @@ export default async function osintRoutes(app: FastifyInstance) {
     cacheClear();
     return { success: true, message: "Cache cleared" };
   });
+
+  // ══════════════════════════════════════════════════════
+  //  NEWS & SOCIAL MEDIA & SENTIMENT
+  // ══════════════════════════════════════════════════════
+
+  // ── News Collection ───────────────────────────────────
+  app.post("/osint/news/collect", async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { query: string; categories?: string[]; languages?: string[]; fetchFullText?: boolean; feeds?: string[] };
+    if (!body.query) return reply.code(400).send({ error: "query is required" });
+    const { collectNews } = await import("../../osint/news-collector.js");
+    return { success: true, data: await collectNews(body.query, {
+      categories: body.categories, languages: body.languages,
+      fetchFullText: body.fetchFullText, feedNames: body.feeds,
+    }) };
+  });
+
+  app.post("/osint/news/google", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { query, language } = request.body as { query: string; language?: string };
+    if (!query) return reply.code(400).send({ error: "query is required" });
+    const { searchGoogleNews } = await import("../../osint/news-collector.js");
+    return { success: true, data: await searchGoogleNews(query, { language }) };
+  });
+
+  app.post("/osint/news/fulltext", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { url } = request.body as { url: string };
+    if (!url) return reply.code(400).send({ error: "article url is required" });
+    const { getFullText } = await import("../../osint/news-collector.js");
+    return { success: true, data: await getFullText(url) };
+  });
+
+  app.post("/osint/news/og", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { url } = request.body as { url: string };
+    if (!url) return reply.code(400).send({ error: "url is required" });
+    const { extractOgMeta } = await import("../../osint/news-collector.js");
+    return { success: true, data: await extractOgMeta(url) };
+  });
+
+  // ── Social Media ──────────────────────────────────────
+  app.post("/osint/social", async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { query: string; platforms?: string[]; subreddits?: string[]; telegramChannels?: string[] };
+    if (!body.query) return reply.code(400).send({ error: "query is required" });
+    const { collectSocialMedia } = await import("../../osint/social-media.js");
+    return { success: true, data: await collectSocialMedia(body.query, {
+      platforms: body.platforms as any, subreddits: body.subreddits, telegramChannels: body.telegramChannels,
+    }) };
+  });
+
+  app.post("/osint/social/reddit", async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { query: string; subreddit?: string; sort?: string };
+    if (!body.query) return reply.code(400).send({ error: "query is required" });
+    const { searchReddit } = await import("../../osint/social-media.js");
+    return { success: true, data: await searchReddit(body.query, { subreddit: body.subreddit, sort: body.sort }) };
+  });
+
+  app.post("/osint/social/hackernews", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { query } = request.body as { query: string };
+    if (!query) return reply.code(400).send({ error: "query is required" });
+    const { searchHackerNews } = await import("../../osint/social-media.js");
+    return { success: true, data: await searchHackerNews(query) };
+  });
+
+  // ── Sentiment Analysis ────────────────────────────────
+  app.post("/osint/sentiment", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { text } = request.body as { text: string };
+    if (!text) return reply.code(400).send({ error: "text is required" });
+    const { analyzeSentiment } = await import("../../osint/sentiment.js");
+    return { success: true, data: analyzeSentiment(text) };
+  });
+
+  app.post("/osint/sentiment/opinion", async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { query: string; posts: { content: string; timestamp?: string; score?: number }[] };
+    if (!body.query || !body.posts) return reply.code(400).send({ error: "query and posts are required" });
+    const { analyzeOpinion } = await import("../../osint/sentiment.js");
+    return { success: true, data: analyzeOpinion(body.query, body.posts) };
+  });
+
+  // ── Combined: Social + Sentiment Pipeline ─────────────
+  app.post("/osint/opinion", async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { query: string; platforms?: string[]; subreddits?: string[] };
+    if (!body.query) return reply.code(400).send({ error: "query is required" });
+
+    const { collectSocialMedia } = await import("../../osint/social-media.js");
+    const { collectNews } = await import("../../osint/news-collector.js");
+    const { analyzeOpinion } = await import("../../osint/sentiment.js");
+
+    // Collect from social media + news in parallel
+    const [social, news] = await Promise.all([
+      collectSocialMedia(body.query, { platforms: body.platforms as any, subreddits: body.subreddits }),
+      collectNews(body.query, { maxPerSource: 5 }),
+    ]);
+
+    // Combine all posts
+    const allPosts = [
+      ...social.posts.map(p => ({ content: p.content, timestamp: p.timestamp, score: p.score })),
+      ...news.articles.map(a => ({ content: `${a.title}. ${a.summary || ""}`, timestamp: a.published })),
+    ];
+
+    const opinion = analyzeOpinion(body.query, allPosts);
+
+    return {
+      success: true,
+      data: {
+        opinion,
+        socialPosts: social.stats.totalPosts,
+        newsArticles: news.stats.totalArticles,
+        sources: [...social.platforms, ...news.sources],
+      },
+    };
+  });
 }
